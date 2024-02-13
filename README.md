@@ -20,7 +20,7 @@ A step by step series of examples that tell you how to get a development environ
 
 1. Clone the repository to your local machine:
 
-```bash
+## bash
 git clone https://yourrepositoryurl.com/project.git
 
 ## Schema File Format
