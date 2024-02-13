@@ -93,38 +93,69 @@ public class ExcelFileProcessor implements FileProcessor {
     }
 
     private Object convertCellValue(Cell cell, String type) {
+        if (cell == null || cell.getCellType() == CellType.BLANK) {
+            return null; // Return null for blank cells
+        }
+
         DataFormatter formatter = new DataFormatter();
         CellType cellType = cell.getCellType();
-        // Handle cell based on type specified in schema
+
         switch (type.toUpperCase()) {
             case "STRING":
-                return cell.getStringCellValue();
+                return formatter.formatCellValue(cell); // Use DataFormatter to handle cell as a String
+
             case "INTEGER":
-                return cellType == CellType.NUMERIC ? (int) cell.getNumericCellValue() : Integer.parseInt(formatter.formatCellValue(cell));
+                try {
+                    return cellType == CellType.NUMERIC ? (int) cell.getNumericCellValue() : Integer.parseInt(formatter.formatCellValue(cell));
+                } catch (NumberFormatException e) {
+                    return null; // Return null if the cell value cannot be parsed as Integer
+                }
+
             case "BOOLEAN":
                 return cellType == CellType.BOOLEAN ? cell.getBooleanCellValue() : Boolean.parseBoolean(formatter.formatCellValue(cell));
+
             case "DOUBLE":
-                return cellType == CellType.NUMERIC ? cell.getNumericCellValue() : Double.parseDouble(formatter.formatCellValue(cell));
+                try {
+                    return cellType == CellType.NUMERIC ? cell.getNumericCellValue() : Double.parseDouble(formatter.formatCellValue(cell));
+                } catch (NumberFormatException e) {
+                    return null; // Return null if the cell value cannot be parsed as Double
+                }
+
             case "FLOAT":
-                return cellType == CellType.NUMERIC ? (float) cell.getNumericCellValue() : Float.parseFloat(formatter.formatCellValue(cell));
+                try {
+                    return cellType == CellType.NUMERIC ? (float) cell.getNumericCellValue() : Float.parseFloat(formatter.formatCellValue(cell));
+                } catch (NumberFormatException e) {
+                    return null; // Return null if the cell value cannot be parsed as Float
+                }
+
             case "DATE":
                 if (cellType == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
                     return cell.getDateCellValue();
                 } else {
-                    // Handle string representation of dates or throw an exception if format is unknown
-                    return parseDateFromString(formatter.formatCellValue(cell));
+                    try {
+                        return parseDateFromString(formatter.formatCellValue(cell)); // Your method to parse date from String
+                    } catch (Exception e) {
+                        return null; // Return null or handle the exception if date cannot be parsed
+                    }
                 }
+
             case "DATETIMESTAMP":
                 if (cellType == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
-                    return convertExcelDateToLocalDateTime(cell.getNumericCellValue());
+                    return convertExcelDateToLocalDateTime(cell.getNumericCellValue()); // Your method to convert Excel date to LocalDateTime
                 } else {
-                    // Optionally, handle string representations of datetime or throw an exception
-                    throw new IllegalArgumentException("Unsupported or non-numeric date format for DATETIMESTAMP type");
+                    try {
+                        // Optionally, parse string to LocalDateTime here or throw an exception
+                        return null; // Placeholder for string to LocalDateTime conversion
+                    } catch (Exception e) {
+                        throw new IllegalArgumentException("Unsupported or non-numeric date format for DATETIMESTAMP type");
+                    }
                 }
+
             default:
-                return cell.toString();
+                return formatter.formatCellValue(cell);
         }
     }
+
 
     private Date parseDateFromString(String dateStr) {
         // Implement parsing logic based on expected date formats or use a library like DateUtils from Apache Commons Lang
