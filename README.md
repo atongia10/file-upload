@@ -22,3 +22,41 @@ A step by step series of examples that tell you how to get a development environ
 
 ```bash
 git clone https://yourrepositoryurl.com/project.git
+
+## Schema File Format
+
+The application requires a schema file to validate the uploaded files against predefined rules. This section describes the expected format of the schema file, detailing each column in the schema.
+
+### Schema Object Attributes
+
+Each object within the schema file represents a column in the uploaded file, with the following attributes:
+
+- **name**: The name of the column. This should match the field name expected in the uploaded file.
+  - Type: `string`
+  - Example: `"id"`
+
+- **type**: The data type of the column. Supported types are `STRING`, `INTEGER`, `FLOAT`, `BOOLEAN`, and `DATE`.
+  - Type: `string`
+  - Example: `"INTEGER"`
+
+- **excelColumn**: The corresponding column in the Excel file. This is denoted by the letter(s) representing the column in an Excel spreadsheet.
+  - Type: `string`
+  - Example: `"A"`
+
+- **validation**: Specifies any validation rules that apply to the column. Common validations include `required`, which means the column must not be empty in the uploaded file.
+  - Type: `string`
+  - Example: `"required"`
+
+### Example Schema File
+
+Below is an example of a schema object within a schema file:
+
+```json
+[
+  {
+    "name": "id",
+    "type": "INTEGER",
+    "excelColumn": "A",
+    "validation": "required"
+  }
+]
