@@ -111,3 +111,51 @@ $$;
 
 -- Call the procedure with the name of the data source
 CALL fetch_filtered_data('psgl');
+
+
+
+CREATE OR REPLACE PROCEDURE fetch_filtered_data_sum(datasource_name VARCHAR)
+RETURNS FLOAT
+LANGUAGE JAVASCRIPT
+AS
+$$
+    // Initialize the SQL query
+    var sqlQuery = "SELECT SUM(amt) AS total_amount FROM " + DATASOURCE_NAME;
+    var hasFilters = false;
+
+    // Fetch filters from the filters table
+    var filters = snowflake.createStatement({
+        sqlText: "SELECT filter_column, filter_values FROM datasource_filters WHERE datasource_name = ?",
+        binds: [DATASOURCE_NAME]
+    }).execute();
+
+    // Build WHERE clause based on available filters
+    var whereClause = [];
+    while (filters.next()) {
+        var filterCol = filters.getColumnValue(1);
+        var filterVals = filters.getColumnValue(2);
+        if (filterVals) {
+            var values = filterVals.split(',').map(function(value) {
+                return "'" + value.trim() + "'";
+            }).join(',');
+            whereClause.push(filterCol + " IN (" + values + ")");
+        } else {
+            whereClause.push(filterCol + " IS NOT NULL");
+        }
+    }
+
+    // Append WHERE clause if filters are present
+    if (whereClause.length > 0) {
+        sqlQuery += " WHERE " + whereClause.join(' AND ');
+    }
+
+    // Execute the constructed SQL query
+    var result_set = snowflake.createStatement({sqlText: sqlQuery}).execute();
+
+    // Retrieve and return the sum of the amt column
+    result_set.next();
+    return result_set.getColumnValue(1);
+$$;
+
+-- Call the procedure with the name of the data source
+CALL fetch_filtered_data_sum('psgl');
