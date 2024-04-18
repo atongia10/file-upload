@@ -69,3 +69,45 @@ CREATE OR REPLACE TABLE datasource_filters (
 INSERT INTO datasource_filters (datasource_name, filter_column, filter_value) VALUES
 ('psgl', 'psglNumber', NULL),
 ('psgl', 'book', NULL);
+
+CREATE OR REPLACE PROCEDURE fetch_filtered_data(datasource_name VARCHAR)
+RETURNS VARCHAR
+LANGUAGE JAVASCRIPT
+AS
+$$
+    // Initialize the SQL query
+    var sqlQuery = "SELECT * FROM " + DATASOURCE_NAME;
+    var hasFilters = false;
+
+    // Fetch filters from the filters table
+    var filters = snowflake.createStatement({
+        sqlText: "SELECT filter_column, filter_values FROM datasource_filters WHERE datasource_name = ?",
+        binds: [DATASOURCE_NAME]
+    }).execute();
+
+    // Build WHERE clause based on available filters
+    var whereClause = [];
+    while (filters.next()) {
+        var filterCol = filters.getColumnValue(1);
+        var filterVals = filters.getColumnValue(2);
+        if (filterVals) {
+            var values = filterVals.split(',').map(function(value) {
+                return "'" + value.trim() + "'";
+            }).join(',');
+            whereClause.push(filterCol + " IN (" + values + ")");
+        } else {
+            whereClause.push(filterCol + " IS NOT NULL");
+        }
+    }
+
+    // Append WHERE clause if filters are present
+    if (whereClause.length > 0) {
+        sqlQuery += " WHERE " + whereClause.join(' AND ');
+    }
+
+    // Return the constructed SQL query
+    return sqlQuery;
+$$;
+
+-- Call the procedure with the name of the data source
+CALL fetch_filtered_data('psgl');
