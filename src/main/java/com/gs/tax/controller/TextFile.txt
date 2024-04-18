@@ -36,3 +36,36 @@ $$;
 
 -- Call the procedure with the name of the data source
 CALL fetch_filtered_data('psgl');
+
+
+
+-- Create the psgl table
+CREATE OR REPLACE TABLE psgl (
+    Id INT,
+    psglNumber VARCHAR(50),
+    account VARCHAR(50),
+    book VARCHAR(50),
+    amt FLOAT
+);
+
+-- Populate the psgl table with some example data
+INSERT INTO psgl (Id, psglNumber, account, book, amt) VALUES
+(1, 'PSGL001', 'A100', 'Book1', 5000.00),
+(2, 'PSGL002', 'A101', 'Book2', 1500.00),
+(3, 'PSGL003', 'A102', 'Book1', 2500.00),
+(4, 'PSGL004', 'A103', 'Book3', 3500.00);
+
+
+
+-- Create the filters table
+CREATE OR REPLACE TABLE datasource_filters (
+    datasource_name VARCHAR(100),
+    filter_column VARCHAR(100),
+    filter_value VARCHAR(100) -- This can be NULL indicating no pre-set filter value
+);
+
+-- Populate the filters table with filter settings
+-- Let's assume initially we are not setting any pre-set values, only the columns to filter on
+INSERT INTO datasource_filters (datasource_name, filter_column, filter_value) VALUES
+('psgl', 'psglNumber', NULL),
+('psgl', 'book', NULL);
