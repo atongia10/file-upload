@@ -1,0 +1,49 @@
+<MithraObject objectType="transactional"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:noNamespaceSchemaLocation="mithraobject.xsd">
+    <PackageName>your.package.name</PackageName>
+    <ClassName>Jurisdiction</ClassName>
+    <DefaultTable>JURISDICTION</DefaultTable>
+
+    <Attribute name="jurisdictionId" javaType="int" columnName="JURISDICTION_ID" primaryKey="true"/>
+    <Attribute name="jurisdictionCode" javaType="String" columnName="JURISDICTION_CODE" maxLength="32"/>
+    <Attribute name="jurisdictionName" javaType="String" columnName="JURISDICTION_NAME" maxLength="255"/>
+    <Attribute name="updatedBy" javaType="String" columnName="UPDATED_BY" maxLength="255"/>
+</MithraObject>
+
+<MithraObject objectType="transactional"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:noNamespaceSchemaLocation="mithraobject.xsd">
+    <PackageName>your.package.name</PackageName>
+    <ClassName>Obligation</ClassName>
+    <DefaultTable>OBLIGATION</DefaultTable>
+
+    <Attribute name="obligationId" javaType="int" columnName="OBLIGATION_ID" primaryKey="true"/>
+    <Attribute name="obligationName" javaType="String" columnName="OBLIGATION_NAME" maxLength="255"/>
+    <Attribute name="updatedBy" javaType="String" columnName="UPDATED_BY" maxLength="255"/>
+</MithraObject>
+
+<MithraObject objectType="transactional"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xsi:noNamespaceSchemaLocation="mithraobject.xsd">
+    <PackageName>your.package.name</PackageName>
+    <ClassName>JurisdictionObligation</ClassName>
+    <DefaultTable>JURISDICTION_OBLIGATION</DefaultTable>
+
+    <Attribute name="jurisdictionId" javaType="int" columnName="JURISDICTION_ID" primaryKey="true"/>
+    <Attribute name="obligationId" javaType="int" columnName="OBLIGATION_ID" primaryKey="true"/>
+
+    <Relationship name="jurisdictions"
+                  relatedObject="Jurisdiction"
+                  cardinality="many-to-many"
+                  reverseRelationshipName="obligations">
+        JurisdictionObligation.jurisdictionId = this.jurisdictionId and Jurisdiction.jurisdictionId = JurisdictionObligation.jurisdictionId
+    </Relationship>
+
+    <Relationship name="obligations"
+                  relatedObject="Obligation"
+                  cardinality="many-to-many"
+                  reverseRelationshipName="jurisdictions">
+        JurisdictionObligation.obligationId = this.obligationId and Obligation.obligationId = JurisdictionObligation.obligationId
+    </Relationship>
+</MithraObject>
