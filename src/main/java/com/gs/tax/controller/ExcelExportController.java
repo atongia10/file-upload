@@ -1,4 +1,27 @@
 /*
+
+
+@RestController
+@RequestMapping("/employees")
+public class EmployeeController {
+    @Autowired
+    private EmployeeService employeeService;
+
+    @GetMapping("/export/excel")
+    public ResponseEntity<Resource> exportToExcel() {
+        List<Employee> employees = employeeService.getAllEmployees();
+        ByteArrayInputStream excelStream = ExcelExportUtil.exportToExcel(employees);
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("Content-Disposition", "attachment; filename=employees.xlsx");
+        return ResponseEntity.ok()
+                .headers(headers)
+                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .body(new InputStreamResource(excelStream));
+    }
+}
+
+
+
 package com.gs.tax.controller;
 
 import org.apache.poi.ss.usermodel.*;
