@@ -1,0 +1,69 @@
+import com.jacob.activeX.ActiveXComponent;
+import com.jacob.com.Dispatch;
+import com.jacob.com.Variant;
+import org.apache.poi.ss.usermodel.*;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.FileInputStream;
+import java.io.IOException;
+
+public class ExcelMacroRunner {
+
+    public static void main(String[] args) {
+        String excelFilePath = "path/to/your/file.xlsm";
+        String macroName = "YourMacroName";
+
+        runMacro(excelFilePath, macroName);
+        readExcelData(excelFilePath);
+    }
+
+    public static void runMacro(String filePath, String macroName) {
+        ActiveXComponent excel = new ActiveXComponent("Excel.Application");
+        try {
+            excel.setProperty("Visible", new Variant(false));
+            Dispatch workbooks = excel.getProperty("Workbooks").toDispatch();
+            Dispatch workbook = Dispatch.call(workbooks, "Open", filePath).toDispatch();
+
+            // Run the macro
+            Dispatch.call(excel, "Run", macroName);
+
+            // Save and close the workbook
+            Dispatch.call(workbook, "Save");
+            Dispatch.call(workbook, "Close", new Variant(false));
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            excel.invoke("Quit", new Variant[0]);
+        }
+    }
+
+    public static void readExcelData(String filePath) {
+        try (FileInputStream fis = new FileInputStream(filePath);
+             Workbook workbook = new XSSFWorkbook(fis)) {
+
+            Sheet sheet = workbook.getSheetAt(0);
+            for (Row row : sheet) {
+                for (Cell cell : row) {
+                    switch (cell.getCellType()) {
+                        case STRING:
+                            System.out.print(cell.getStringCellValue() + "\t");
+                            break;
+                        case NUMERIC:
+                            System.out.print(cell.getNumericCellValue() + "\t");
+                            break;
+                        case BOOLEAN:
+                            System.out.print(cell.getBooleanCellValue() + "\t");
+                            break;
+                        default:
+                            System.out.print("Unknown value\t");
+                            break;
+                    }
+                }
+                System.out.println();
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
