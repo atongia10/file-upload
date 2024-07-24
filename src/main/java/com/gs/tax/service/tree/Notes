@@ -1,3 +1,23 @@
+-- Root Catalog
+INSERT INTO RootCatalog (description, sequence) VALUES ('Total of All OTP Codes', 1);
+INSERT INTO RootCatalog (description, sequence) VALUES ('Another Root', 2);
+
+-- OTP Code Catalog
+INSERT INTO OtpCodeCatalog (root_id, name, sequence) VALUES (1, 'OTP Code 1', 1);
+INSERT INTO OtpCodeCatalog (root_id, name, sequence) VALUES (1, 'OTP Code 2', 2);
+INSERT INTO OtpCodeCatalog (root_id, name, sequence) VALUES (2, 'OTP Code 3', 1);
+
+-- Difference Name Catalog
+INSERT INTO DifferenceNameCatalog (otp_code_id, name, sequence) VALUES (1, 'Difference 1', 1);
+INSERT INTO DifferenceNameCatalog (otp_code_id, name, sequence) VALUES (1, 'Difference 2', 2);
+INSERT INTO DifferenceNameCatalog (otp_code_id, name, sequence) VALUES (2, 'Difference 3', 1);
+
+-- Datasource Difference Mapping
+INSERT INTO DatasourceDifferenceMapping (difference_name_id, value) VALUES (1, 10);
+INSERT INTO DatasourceDifferenceMapping (difference_name_id, value) VALUES (2, 20);
+INSERT INTO DatasourceDifferenceMapping (difference_name_id, value) VALUES (3, 30);
+
+
 src/main/java/com/yourcompany/projectname/
 |-- ProjectnameApplication.java
 |-- controller/
