@@ -24,14 +24,13 @@ class TreeNode {
     public void addChild(TreeNode child) { children.add(child); }
 
     public void printTree(String indent) {
-        // Print the current node's information
-        System.out.println(indent + name + " [ " + value + " ]");
-        // Sort children by sequence before printing
+        // Print children first
         children.sort((a, b) -> Integer.compare(a.getSequence(), b.getSequence()));
-        // Print children recursively
         for (TreeNode child : children) {
             child.printTree(indent + "  ");
         }
+        // Print the current node's information last
+        System.out.println(indent + "Level: " + name + ", Value: " + value + ", Sequence: " + sequence);
     }
 }
 
@@ -80,7 +79,7 @@ public class TreeExample {
         // Aggregate and print for each root
         for (TreeNode root : roots) {
             aggregateTree(root);
-            System.out.println("Tree structure with values for " + root.getName() + ":");
+            System.out.println("==== Tree Structure for " + root.getName() + " ====");
             root.printTree("");
             System.out.println();
         }
