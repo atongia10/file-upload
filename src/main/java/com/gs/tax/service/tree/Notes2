@@ -1,0 +1,326 @@
+package com.yourcompany.projectname.dto;
+
+import java.util.List;
+
+public class TotalHierarchyDto {
+    private String sumTotalDescription;
+    private double sumTotalValue;
+    private List<HierarchyDto> roots;
+    private int sequence; // New field for sequence
+
+    // Getters and Setters
+
+    public String getSumTotalDescription() {
+        return sumTotalDescription;
+    }
+
+    public void setSumTotalDescription(String sumTotalDescription) {
+        this.sumTotalDescription = sumTotalDescription;
+    }
+
+    public double getSumTotalValue() {
+        return sumTotalValue;
+    }
+
+    public void setSumTotalValue(double sumTotalValue) {
+        this.sumTotalValue = sumTotalValue;
+    }
+
+    public List<HierarchyDto> getRoots() {
+        return roots;
+    }
+
+    public void setRoots(List<HierarchyDto> roots) {
+        this.roots = roots;
+    }
+
+    public int getSequence() {
+        return sequence;
+    }
+
+    public void setSequence(int sequence) {
+        this.sequence = sequence;
+    }
+}
+
+public class HierarchyDto {
+    private String rootDescription;
+    private String headerText;
+    private Double value;
+    private List<OtpCodeDto> otpCodes;
+    private int sequence; // New field for sequence
+
+    // Getters and Setters
+
+    public String getRootDescription() {
+        return rootDescription;
+    }
+
+    public void setRootDescription(String rootDescription) {
+        this.rootDescription = rootDescription;
+    }
+
+    public String getHeaderText() {
+        return headerText;
+    }
+
+    public void setHeaderText(String headerText) {
+        this.headerText = headerText;
+    }
+
+    public Double getValue() {
+        return value;
+    }
+
+    public void setValue(Double value) {
+        this.value = value;
+    }
+
+    public List<OtpCodeDto> getOtpCodes() {
+        return otpCodes;
+    }
+
+    public void setOtpCodes(List<OtpCodeDto> otpCodes) {
+        this.otpCodes = otpCodes;
+    }
+
+    public int getSequence() {
+        return sequence;
+    }
+
+    public void setSequence(int sequence) {
+        this.sequence = sequence;
+    }
+
+    public static class OtpCodeDto {
+        private String name;
+        private Double value;
+        private List<DifferenceDto> differences;
+        private int sequence; // New field for sequence
+
+        // Getters and Setters
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public Double getValue() {
+            return value;
+        }
+
+        public void setValue(Double value) {
+            this.value = value;
+        }
+
+        public List<DifferenceDto> getDifferences() {
+            return differences;
+        }
+
+        public void setDifferences(List<DifferenceDto> differences) {
+            this.differences = differences;
+        }
+
+        public int getSequence() {
+            return sequence;
+        }
+
+        public void setSequence(int sequence) {
+            this.sequence = sequence;
+        }
+    }
+
+    public static class DifferenceDto {
+        private String name;
+        private Double value;
+        private int sequence; // New field for sequence
+
+        // Getters and Setters
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public Double getValue() {
+            return value;
+        }
+
+        public void setValue(Double value) {
+            this.value = value;
+        }
+
+        public int getSequence() {
+            return sequence;
+        }
+
+        public void setSequence(int sequence) {
+            this.sequence = sequence;
+        }
+    }
+}
+
+
+package com.yourcompany.projectname.service;
+
+import com.yourcompany.projectname.dto.TotalHierarchyDto;
+import com.yourcompany.projectname.dto.HierarchyDto;
+import com.yourcompany.projectname.entity.RootCatalog;
+import com.yourcompany.projectname.repository.RootCatalogRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class HierarchyService {
+    @Autowired
+    private RootCatalogRepository rootCatalogRepository;
+
+    public TotalHierarchyDto getHierarchy() {
+        List<RootCatalog> roots = rootCatalogRepository.findAll();
+
+        List<HierarchyDto> rootDtos = roots.stream().map((root, rootIndex) -> {
+            HierarchyDto dto = new HierarchyDto();
+            dto.setRootDescription(root.getDescription());
+            dto.setHeaderText(root.getHeaderText());
+            dto.setSequence(rootIndex + 1); // Set sequence for root
+
+            List<HierarchyDto.OtpCodeDto> otpCodes = root.getOtpCodes().stream().map((otp, otpIndex) -> {
+                HierarchyDto.OtpCodeDto otpDto = new HierarchyDto.OtpCodeDto();
+                otpDto.setName(otp.getName());
+                otpDto.setSequence(otpIndex + 1); // Set sequence for OTP code
+
+                List<HierarchyDto.DifferenceDto> differences = otp.getDifferences().stream().map((diff, diffIndex) -> {
+                    HierarchyDto.DifferenceDto diffDto = new HierarchyDto.DifferenceDto();
+                    diffDto.setName(diff.getName());
+                    double diffValue = diff.getValues().stream().mapToDouble(val -> val.getValue()).sum();
+                    diffDto.setValue(diffValue);
+                    diffDto.setSequence(diffIndex + 1); // Set sequence for difference
+                    return diffDto;
+                }).collect(Collectors.toList());
+
+                double otpValue = differences.stream().mapToDouble(HierarchyDto.DifferenceDto::getValue).sum();
+                otpDto.setDifferences(differences);
+                otpDto.setValue(otpValue);
+
+                return otpDto;
+            }).collect(Collectors.toList());
+
+            double rootValue = otpCodes.stream().mapToDouble(HierarchyDto.OtpCodeDto::getValue).sum();
+            dto.setOtpCodes(otpCodes);
+            dto.setValue(rootValue);
+
+            return dto;
+        }).collect(Collectors.toList());
+
+        double sumTotalValue = rootDtos.stream().mapToDouble(HierarchyDto::getValue).sum();
+
+        TotalHierarchyDto totalHierarchyDto = new TotalHierarchyDto();
+        totalHierarchyDto.setRoots(rootDtos);
+        totalHierarchyDto.setSumTotalValue(sumTotalValue);
+        totalHierarchyDto.setSumTotalDescription("Sum of All Root Descriptions"); // Example description
+        totalHierarchyDto.setSequence(1); // Example sequence, you can modify this as needed
+
+        return totalHierarchyDto;
+    }
+}
+
+
+package com.yourcompany.projectname.controller;
+
+import com.yourcompany.projectname.dto.TotalHierarchyDto;
+import com.yourcompany.projectname.service.HierarchyService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping("/api/hierarchy")
+public class HierarchyController {
+    @Autowired
+    private HierarchyService hierarchyService;
+
+    @GetMapping
+    public TotalHierarchyDto getHierarchy() {
+        return hierarchyService.getHierarchy();
+    }
+}
+
+
+
+{
+  "sumTotalDescription": "Sum of All Root Descriptions",
+  "sumTotalValue": 100.0,
+  "sequence": 1,
+  "roots": [
+    {
+      "rootDescription": "Total of All OTP Codes",
+      "headerText": "Header for Total of All OTP Codes",
+      "value": 60.0,
+      "sequence": 1,
+      "otpCodes": [
+        {
+          "name": "OTP Code 1",
+          "value": 30.0,
+          "sequence": 1,
+          "differences": [
+            {
+              "name": "Difference 1",
+              "value": 10.0,
+              "sequence": 1
+            },
+            {
+              "name": "Difference 2",
+              "value": 20.0,
+              "sequence": 2
+            }
+          ]
+        },
+        {
+          "name": "OTP Code 2",
+          "value": 30.0,
+          "sequence": 2,
+          "differences": [
+            {
+              "name": "Difference 3",
+              "value": 30.0,
+              "sequence": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "rootDescription": "Another Root",
+      "headerText": "Header for Another Root",
+      "value": 40.0,
+      "sequence": 2,
+      "otpCodes": [
+        {
+          "name": "OTP Code 3",
+          "value": 40.0,
+          "sequence": 1,
+          "differences": [
+            {
+              "name": "Difference 4",
+              "value": 40.0,
+              "sequence": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+
+
