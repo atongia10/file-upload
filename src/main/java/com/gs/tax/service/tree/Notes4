@@ -64,3 +64,125 @@ public class Main {
         System.out.println("Level 1 Node Value after set: " + level1Node.getValue()); // Outputs 100
     }
 }
+
+
+===
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class HierarchicalNode {
+    private String name;
+    private Integer value;
+    private int sequence;
+    private String headerText;
+    private final List<HierarchicalNode> children;
+
+    public HierarchicalNode(String name, Integer value, int sequence, String headerText) {
+        this.name = name;
+        this.value = value;
+        this.sequence = sequence;
+        this.headerText = headerText;
+        this.children = new ArrayList<>();
+    }
+
+    public HierarchicalNode(String name, int sequence, String headerText) {
+        this(name, null, sequence, headerText);
+    }
+
+    public void addChild(HierarchicalNode child) {
+        this.children.add(child);
+    }
+
+    public Integer getValue() {
+        if (this.value != null) {
+            return this.value;
+        } else {
+            return children.stream()
+                    .mapToInt(HierarchicalNode::getValue)
+                    .sum();
+        }
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public int getSequence() {
+        return sequence;
+    }
+
+    public String getHeaderText() {
+        return headerText;
+    }
+
+    public List<HierarchicalNode> getChildren() {
+        return children;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("HierarchicalNode{name='%s', value=%d, sequence=%d, headerText='%s', children=%s}",
+                name, getValue(), sequence, headerText, children);
+    }
+}
+
+
+public class Main {
+    public static void main(String[] args) {
+        // Level 4 nodes
+        HierarchicalNode level4Node1 = new HierarchicalNode("Level 4 Node 1", 10, 1, "Header Text 4-1");
+        HierarchicalNode level4Node2 = new HierarchicalNode("Level 4 Node 2", 20, 2, "Header Text 4-2");
+        HierarchicalNode level4Node3 = new HierarchicalNode("Level 4 Node 3", 30, 3, "Header Text 4-3");
+
+        HierarchicalNode level4Node4 = new HierarchicalNode("Level 4 Node 4", 11, 4, "Header Text 4-4");
+        HierarchicalNode level4Node5 = new HierarchicalNode("Level 4 Node 5", 21, 5, "Header Text 4-5");
+        HierarchicalNode level4Node6 = new HierarchicalNode("Level 4 Node 6", 31, 6, "Header Text 4-6");
+
+        HierarchicalNode level4Node7 = new HierarchicalNode("Level 4 Node 7", 12, 7, "Header Text 4-7");
+        HierarchicalNode level4Node8 = new HierarchicalNode("Level 4 Node 8", 22, 8, "Header Text 4-8");
+
+        // Level 3 nodes
+        HierarchicalNode level3A = new HierarchicalNode("Level 3A", 1, "Header Text 3A");
+        level3A.addChild(level4Node1);
+        level3A.addChild(level4Node2);
+        level3A.addChild(level4Node3);
+
+        HierarchicalNode level3B = new HierarchicalNode("Level 3B", 2, "Header Text 3B");
+        level3B.addChild(level4Node4);
+        level3B.addChild(level4Node5);
+        level3B.addChild(level4Node6);
+
+        HierarchicalNode level3C = new HierarchicalNode("Level 3C", 3, "Header Text 3C");
+        level3C.addChild(level4Node7);
+        level3C.addChild(level4Node8);
+
+        // Level 2 nodes
+        HierarchicalNode level2A = new HierarchicalNode("Level 2A", 1, "Header Text 2A");
+        level2A.addChild(level3A);
+
+        HierarchicalNode level2B = new HierarchicalNode("Level 2B", 2, "Header Text 2B");
+        level2B.addChild(level3B);
+
+        HierarchicalNode level2C = new HierarchicalNode("Level 2C", 3, "Header Text 2C");
+        level2C.addChild(level3C);
+
+        // Level 1 nodes
+        HierarchicalNode level1A = new HierarchicalNode("Level 1A", 1, "Header Text 1A");
+        level1A.addChild(level2A);
+        level1A.addChild(level2B);
+
+        HierarchicalNode level1B = new HierarchicalNode("Level 1B", 2, "Header Text 1B");
+        level1B.addChild(level2C);
+
+        // Output results
+        System.out.println("Level 3A: " + level3A); // Outputs 60
+        System.out.println("Level 3B: " + level3B); // Outputs 63
+        System.out.println("Level 3C: " + level3C); // Outputs 34
+        System.out.println("Level 2A: " + level2A); // Outputs 60
+        System.out.println("Level 2B: " + level2B); // Outputs 63
+        System.out.println("Level 2C: " + level2C); // Outputs 34
+        System.out.println("Level 1A: " + level1A); // Outputs 123
+        System.out.println("Level 1B: " + level1B); // Outputs 34
+    }
+}
