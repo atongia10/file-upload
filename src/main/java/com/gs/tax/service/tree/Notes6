@@ -1,0 +1,144 @@
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+
+@Entity
+public class HierarchicalData {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private Integer value;
+    private int sequence;
+    private String headerText;
+    private Long parentId;
+
+    // Getters and setters
+}
+
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface HierarchicalDataRepository extends JpaRepository<HierarchicalData, Long> {
+    List<HierarchicalData> findByParentId(Long parentId);
+}
+
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class HierarchicalNode {
+    private String name;
+    private Integer value;
+    private int sequence;
+    private String headerText;
+    private List<HierarchicalNode> children;
+
+    public HierarchicalNode(String name, Integer value, int sequence, String headerText) {
+        this.name = name;
+        this.value = value;
+        this.sequence = sequence;
+        this.headerText = headerText;
+        this.children = new ArrayList<>();
+    }
+
+    public void addChild(HierarchicalNode child) {
+        this.children.add(child);
+    }
+
+    public void addChildren(List<HierarchicalNode> children) {
+        this.children.addAll(children);
+    }
+
+    // Getters and setters
+}
+
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+public class HierarchicalDataService {
+    @Autowired
+    private HierarchicalDataRepository repository;
+
+    public List<HierarchicalNode> getHierarchy() {
+        List<HierarchicalData> allData = repository.findAll();
+        return buildHierarchy(null, allData);
+    }
+
+    private List<HierarchicalNode> buildHierarchy(Long parentId, List<HierarchicalData> allData) {
+        return allData.stream()
+                .filter(data -> (parentId == null && data.getParentId() == null) || (parentId != null && parentId.equals(data.getParentId())))
+                .map(data -> {
+                    HierarchicalNode node = new HierarchicalNode(
+                        data.getName(),
+                        data.getValue(),
+                        data.getSequence(),
+                        data.getHeaderText()
+                    );
+                    node.addChildren(buildHierarchy(data.getId(), allData));
+                    if (node.getValue() == null) {
+                        node.setValue(node.getChildren().stream().mapToInt(HierarchicalNode::getValue).sum());
+                    }
+                    return node;
+                })
+                .collect(Collectors.toList());
+    }
+}
+
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class HierarchicalNodeDTO {
+    private String name;
+    private Integer value;
+    private int sequence;
+    private String headerText;
+    private List<HierarchicalNodeDTO> children;
+
+    public HierarchicalNodeDTO(HierarchicalNode node) {
+        this.name = node.getName();
+        this.value = node.getValue();
+        this.sequence = node.getSequence();
+        this.headerText = node.getHeaderText();
+        this.children = node.getChildren().stream()
+                .map(HierarchicalNodeDTO::new)
+                .collect(Collectors.toList());
+    }
+
+    // Getters and setters
+}
+
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@RestController
+public class HierarchicalDataController {
+    @Autowired
+    private HierarchicalDataService service;
+
+    @GetMapping("/hierarchy")
+    public List<HierarchicalNodeDTO> getHierarchy() {
+        List<HierarchicalNode> nodes = service.getHierarchy();
+        return nodes.stream().map(HierarchicalNodeDTO::new).collect(Collectors.toList());
+    }
+}
+
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.jpa.hibernate.ddl-auto=update
