@@ -1,0 +1,66 @@
+import java.util.List;
+import java.util.ArrayList;
+
+public class HierarchicalNode {
+    private Integer value;
+    private final List<HierarchicalNode> children;
+
+    public HierarchicalNode(Integer value) {
+        this.value = value;
+        this.children = new ArrayList<>();
+    }
+
+    public HierarchicalNode() {
+        this(null);
+    }
+
+    public void addChild(HierarchicalNode child) {
+        this.children.add(child);
+    }
+
+    public Integer getValue() {
+        if (this.value != null) {
+            return this.value;
+        } else {
+            return children.stream()
+                    .mapToInt(HierarchicalNode::getValue)
+                    .sum();
+        }
+    }
+
+    public void setValue(Integer value) {
+        this.value = value;
+    }
+
+    public List<HierarchicalNode> getChildren() {
+        return this.children;
+    }
+}
+
+
+public class Main {
+    public static void main(String[] args) {
+        // Level 3 nodes
+        HierarchicalNode level3Node1 = new HierarchicalNode(10);
+        HierarchicalNode level3Node2 = new HierarchicalNode(20);
+
+        // Level 2 node
+        HierarchicalNode level2Node = new HierarchicalNode();
+        level2Node.addChild(level3Node1);
+        level2Node.addChild(level3Node2);
+
+        // Level 1 node
+        HierarchicalNode level1Node = new HierarchicalNode();
+        level1Node.addChild(level2Node);
+
+        // Calculated values
+        System.out.println("Level 3 Node 1 Value: " + level3Node1.getValue()); // Outputs 10
+        System.out.println("Level 3 Node 2 Value: " + level3Node2.getValue()); // Outputs 20
+        System.out.println("Level 2 Node Value: " + level2Node.getValue());   // Outputs 30
+        System.out.println("Level 1 Node Value: " + level1Node.getValue());   // Outputs 30
+
+        // Setting an explicit value at level 1
+        level1Node.setValue(100);
+        System.out.println("Level 1 Node Value after set: " + level1Node.getValue()); // Outputs 100
+    }
+}
