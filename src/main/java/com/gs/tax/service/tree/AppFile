@@ -1,0 +1,322 @@
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Controller;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import javax.persistence.*;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+
+@Entity
+class ReportCatalog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long reportId;
+    private String reportName;
+
+    @OneToMany(mappedBy = "report")
+    private List<GrandTotalConfig> grandTotals;
+
+    // Getters and Setters
+}
+
+@Entity
+class GrandTotalConfig {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @ManyToOne
+    @JoinColumn(name = "parentId")
+    private GrandTotalConfig parent;
+
+    @ManyToOne
+    @JoinColumn(name = "reportId")
+    private ReportCatalog report;
+
+    @OneToMany(mappedBy = "parent")
+    private List<GrandTotalConfig> children;
+
+    private String description;
+    private String freeText;
+
+    // Getters and Setters
+}
+
+@Entity
+class OTPCategory {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long otpCategoryId;
+
+    @ManyToOne
+    @JoinColumn(name = "grandTotalId")
+    private GrandTotalConfig grandTotalConfig;
+
+    @ManyToOne
+    @JoinColumn(name = "otpCodeId")
+    private OTPCatalog otpCatalog;
+
+    // Getters and Setters
+}
+
+@Entity
+class OTPCatalog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long otpCodeId;
+    private String code;
+    private String description;
+
+    // Getters and Setters
+}
+
+@Entity
+class DifferenceCatalog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long differenceId;
+    private String name;
+    private BigDecimal adjustments;
+
+    @ManyToOne
+    @JoinColumn(name = "otpCodeId")
+    private OTPCatalog otpCatalog;
+
+    @OneToMany(mappedBy = "differenceCatalog")
+    private List<BalanceCatalog> balances;
+
+    // Getters and Setters
+}
+
+@Entity
+class BalanceCatalog {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long balanceId;
+
+    @ManyToOne
+    @JoinColumn(name = "differenceId")
+    private DifferenceCatalog differenceCatalog;
+
+    private BigDecimal amount;
+
+    // Getters and Setters
+}
+
+interface ReportCatalogRepository extends JpaRepository<ReportCatalog, Long> {}
+
+interface GrandTotalConfigRepository extends JpaRepository<GrandTotalConfig, Long> {
+    List<GrandTotalConfig> findByParentIsNullAndReport(ReportCatalog report);
+}
+
+interface OTPCategoryRepository extends JpaRepository<OTPCategory, Long> {
+    List<OTPCategory> findByGrandTotalConfig(GrandTotalConfig grandTotalConfig);
+}
+
+interface OTPCatalogRepository extends JpaRepository<OTPCatalog, Long> {}
+
+interface DifferenceCatalogRepository extends JpaRepository<DifferenceCatalog, Long> {
+    List<DifferenceCatalog> findByOtpCatalog(OTPCatalog otpCatalog);
+}
+
+interface BalanceCatalogRepository extends JpaRepository<BalanceCatalog, Long> {
+    List<BalanceCatalog> findByDifferenceCatalog(DifferenceCatalog differenceCatalog);
+}
+
+@Service
+class ReportService {
+    @Autowired
+    private ReportCatalogRepository reportCatalogRepository;
+
+    @Autowired
+    private GrandTotalConfigRepository grandTotalConfigRepository;
+
+    @Autowired
+    private OTPCategoryRepository otpCategoryRepository;
+
+    @Autowired
+    private OTPCatalogRepository otpCatalogRepository;
+
+    @Autowired
+    private DifferenceCatalogRepository differenceCatalogRepository;
+
+    @Autowired
+    private BalanceCatalogRepository balanceCatalogRepository;
+
+    public Map<String, Object> generateReport(Long reportId) {
+        ReportCatalog report = reportCatalogRepository.findById(reportId).orElseThrow(() -> new RuntimeException("Report not found"));
+        List<GrandTotalConfig> superGrandTotals = grandTotalConfigRepository.findByParentIsNullAndReport(report);
+
+        List<Map<String, Object>> superGrandTotalList = new ArrayList<>();
+
+        for (GrandTotalConfig superGrandTotal : superGrandTotals) {
+            BigDecimal superGrandTotalAmount = BigDecimal.ZERO;
+
+            List<Map<String, Object>> grandTotalList = superGrandTotal.getChildren().stream().map(grandTotal -> {
+                String freeText = grandTotal.getFreeText();
+                List<OTPCategory> otpCategories = otpCategoryRepository.findByGrandTotalConfig(grandTotal);
+
+                List<Map<String, Object>> categoryDetails = otpCategories.stream().map(otpCategory -> {
+                    OTPCatalog otpCatalog = otpCategory.getOtpCatalog();
+                    List<DifferenceCatalog> differences = differenceCatalogRepository.findByOtpCatalog(otpCatalog);
+
+                    List<Map<String, Object>> differenceDetails = differences.stream().map(difference -> {
+                        List<BalanceCatalog> balances = balanceCatalogRepository.findByDifferenceCatalog(difference);
+                        BigDecimal amount = balances.stream().map(BalanceCatalog::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                        BigDecimal adjustments = difference.getAdjustments();
+                        BigDecimal amountPlusAdjustments = amount.add(adjustments);
+
+                        Map<String, Object> differenceMap = new HashMap<>();
+                        differenceMap.put("name", difference.getName());
+                        differenceMap.put("amount", amount);
+                        differenceMap.put("adjustments", adjustments);
+                        differenceMap.put("amountPlusAdjustments", amountPlusAdjustments);
+
+                        return differenceMap;
+                    }).collect(Collectors.toList());
+
+                    BigDecimal subtotal = differenceDetails.stream()
+                            .map(d -> (BigDecimal) d.get("amount"))
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    Map<String, Object> categoryMap = new HashMap<>();
+                    categoryMap.put("otpCode", otpCatalog.getCode());
+                    categoryMap.put("description", otpCatalog.getDescription());
+                    categoryMap.put("subtotal", subtotal);
+                    categoryMap.put("differences", differenceDetails);
+
+                    return categoryMap;
+                }).collect(Collectors.toList());
+
+                BigDecimal categoryTotal = categoryDetails.stream()
+                        .map(c -> (BigDecimal) c.get("subtotal"))
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                Map<String, Object> grandTotalMap = new LinkedHashMap<>();
+                grandTotalMap.put("category", freeText);
+                grandTotalMap.put("headerText", "Free Text Here"); // Example free text
+                grandTotalMap.put("details", categoryDetails);
+                grandTotalMap.put("categoryTotal", categoryTotal);
+
+                superGrandTotalAmount = superGrandTotalAmount.add(categoryTotal);
+                return grandTotalMap;
+            }).collect(Collectors.toList());
+
+            Map<String, Object> superGrandTotalMap = new LinkedHashMap<>();
+            superGrandTotalMap.put("superGrandTotalFreeText", superGrandTotal.getFreeText());
+            superGrandTotalMap.put("superGrandTotalAmount", superGrandTotalAmount);
+            superGrandTotalMap.put("grandTotals", grandTotalList);
+
+            superGrandTotalList.add(superGrandTotalMap);
+        }
+
+        Map<String, Object> reportMap = new LinkedHashMap<>();
+        reportMap.put("reportName", report.getReportName());
+        reportMap.put("superGrandTotals", superGrandTotalList);
+
+        return reportMap;
+    }
+}
+
+@RestController
+@RequestMapping("/api/reports")
+class ReportController {
+    @Autowired
+    private ReportService reportService;
+
+    @GetMapping("/flat/{reportId}")
+    public ResponseEntity<Map<String, Object>> getFlatReport(@PathVariable Long reportId) {
+        return ResponseEntity.ok(reportService.generateReport(reportId));
+    }
+}
+
+
+# H2 Database configuration
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.h2.console.enabled=true
+
+# Hibernate
+spring.jpa.hibernate.ddl-auto=update
+
+
+INSERT INTO report_catalog (report_id, report_name) VALUES (1, 'Report 1'), (2, 'Report 2');
+
+INSERT INTO grand_total_config (id, parent_id, report_id, description, free_text) VALUES
+(1, NULL, 1, 'Super Grand Total 1', 'Super Grand Total Free Text 1'),
+(2, 1, 1, 'Total for Category A', 'GRAND TOTAL 1: Total for Category A'),
+(3, 1, 1, 'Total for Category B', 'GRAND TOTAL 2: Total for Category B'),
+(4, NULL, 2, 'Super Grand Total 2', 'Super Grand Total Free Text 2'),
+(5, 4, 2, 'Total for Category C', 'GRAND TOTAL 3: Total for Category C');
+
+INSERT INTO otp_catalog (otp_code_id, code, description) VALUES
+     (1, 'PVG01', 'Office Supplies'),
+     (2, 'PVG02', 'Utilities'),
+     (3, 'PVG03', 'Travel Expenses'),
+     (4, 'PVG04', 'Training'),
+     (5, 'PVG05', 'Marketing'),
+     (6, 'PVG06', 'Research & Development');
+
+     INSERT INTO otp_category (otp_category_id, grand_total_id, otp_code_id) VALUES
+     (1, 2, 1),
+     (2, 2, 2),
+     (3, 3, 3),
+     (4, 3, 4),
+     (5, 5, 5),
+     (6, 5, 6);
+
+     INSERT INTO difference_catalog (difference_id, name, otp_code_id, adjustments) VALUES
+     (1, 'Diff1', 1, 5.00),
+     (2, 'Diff2', 1, 10.00),
+     (3, 'Diff3', 2, 15.00),
+     (4, 'Diff4', 2, 25.00),
+     (5, 'Diff5', 3, 20.00),
+     (6, 'Diff6', 3, 30.00),
+     (7, 'Diff7', 4, 40.00),
+     (8, 'Diff8', 4, 50.00),
+     (9, 'Diff9', 5, 10.00),
+     (10, 'Diff10', 5, 15.00),
+     (11, 'Diff11', 6, 20.00),
+     (12, 'Diff12', 6, 25.00);
+
+     INSERT INTO balance_catalog (balance_id, difference_id, amount) VALUES
+     (1, 1, 50.00),
+     (2, 2, 75.00),
+     (3, 3, 100.00),
+     (4, 4, 200.00),
+     (5, 5, 150.00),
+     (6, 6, 250.00),
+     (7, 7, 300.00),
+     (8, 8, 350.00),
+     (9, 9, 200.00),
+     (10, 10, 300.00),
+     (11, 11, 400.00),
+     (12, 12, 500.00);
+
+
+
