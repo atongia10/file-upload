@@ -1,0 +1,97 @@
+Final Hierarchical Design
+Tables:
+TBL_Difference
+
+Columns:
+differenceId: Primary key.
+differenceName: Name of the difference.
+differenceCategory: Category (e.g., Gaap to Stat, Stat to Tax, NOL).
+differenceTiming: Timing (e.g., Permanent, Temporary).
+TBL_OTP_DIFFERENCE_MAPPING
+
+Columns:
+mappingId: Primary key.
+otpCode: OTP code.
+differenceId: Foreign key referencing TBL_Difference.
+TBL_Balance
+
+Columns:
+balanceId: Primary key.
+differenceId: Foreign key referencing TBL_Difference.
+amount: Amount associated with the differenceId.
+TBL_Hierarchy
+
+Columns:
+hierarchyId: Primary key.
+parentId: Foreign key referencing TBL_Hierarchy for parent-child relationships.
+differenceId: Foreign key referencing TBL_Difference.
+level: Indicates the level in the hierarchy (1 for Category, 2 for Timing, etc.).
+sequenceOrder: Defines the order within the same level.
+Query for Generating the Hierarchical Output:
+sql
+Copy code
+WITH RecursiveHierarchy AS (
+    -- Start with the lowest level (Differences)
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        diff.differenceCategory AS category,
+        diff.differenceTiming AS timing,
+        otp_map.otpCode,
+        diff.differenceName,
+        bal.amount,
+        CAST(diff.differenceCategory AS VARCHAR(255)) AS path
+    FROM
+        TBL_Hierarchy h
+    LEFT JOIN
+        TBL_Difference diff ON h.differenceId = diff.differenceId
+    LEFT JOIN
+        TBL_OTP_DIFFERENCE_MAPPING otp_map ON h.differenceId = otp_map.differenceId
+    LEFT JOIN
+        TBL_Balance bal ON diff.differenceId = bal.differenceId
+    WHERE
+        h.level = 4  -- Start with the lowest level (Differences)
+
+    UNION ALL
+
+    -- Recursive part: aggregate amounts as we move up the hierarchy
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        p.category,
+        p.timing,
+        p.otpCode,
+        NULL AS differenceName,
+        SUM(p.amount) AS amount,  -- Aggregate amount from lower levels
+        CONCAT(p.path, ' -> ', h.hierarchyId) AS path
+    FROM
+        TBL_Hierarchy h
+    JOIN
+        RecursiveHierarchy p ON h.hierarchyId = p.parentId
+    GROUP BY
+        h.hierarchyId, h.parentId, h.level, h.sequenceOrder, p.category, p.timing, p.otpCode, p.path
+)
+SELECT
+    hierarchyId,
+    level,
+    category,
+    timing,
+    otpCode,
+    differenceName,
+    amount,
+    path
+FROM
+    RecursiveHierarchy
+ORDER BY
+    category, timing, otpCode, differenceName;
+Key Features of the Design:
+Flexible Hierarchy: The TBL_Hierarchy structure allows for a flexible and scalable hierarchy that can be easily adjusted as needed.
+Cumulative Aggregation: The sums at each level aggregate the amounts from all child levels, including cumulative sums at the top level (Level 1).
+Clear Sorting: The final output is sorted by category, timing, otpCode, and differenceName, providing a structured and easy-to-read hierarchy.
+This design should serve your needs well for organizing, querying, and presenting hierarchical financial data or any other data with similar requirements. If any further adjustments or refinements are needed down the line, you can always revisit and fine-tune the setup.
+
+If everything looks good, you can go ahead and implement this in your environment!
