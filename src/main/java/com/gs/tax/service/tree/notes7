@@ -325,3 +325,100 @@ FROM
     RecursiveHierarchy
 ORDER BY
     category, timing, otpCode, differenceName;
+===
+CREATE TEMPORARY TABLE Temp_Level4 AS (
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        d.differenceCategory AS category,
+        d.differenceTiming AS timing,
+        m.otpCode,
+        d.differenceName,
+        b.amount,
+        CAST(d.differenceCategory AS VARCHAR(255)) AS path
+    FROM
+        TBL_Hierarchy h
+    LEFT JOIN
+        TBL_Difference d ON h.differenceId = d.differenceId
+    LEFT JOIN
+        TBL_OTP_DIFFERENCE_MAPPING m ON h.differenceId = m.differenceId
+    LEFT JOIN
+        TBL_Balance b ON d.differenceId = b.differenceId
+    WHERE
+        h.level = 4
+);
+
+CREATE TEMPORARY TABLE Temp_Level3 AS (
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        p.category,
+        p.timing,
+        p.otpCode,
+        NULL AS differenceName,
+        SUM(p.amount) AS amount,
+        CAST(p.path || ' -> ' || RTRIM(CHAR(h.hierarchyId)) AS VARCHAR(255)) AS path
+    FROM
+        TBL_Hierarchy h
+    JOIN
+        Temp_Level4 p ON h.hierarchyId = p.parentId
+    GROUP BY
+        h.hierarchyId, h.parentId, h.level, h.sequenceOrder, p.category, p.timing, p.otpCode, p.path
+);
+
+
+CREATE TEMPORARY TABLE Temp_Level2 AS (
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        p.category,
+        p.timing,
+        NULL AS otpCode,
+        NULL AS differenceName,
+        SUM(p.amount) AS amount,
+        CAST(p.path || ' -> ' || RTRIM(CHAR(h.hierarchyId)) AS VARCHAR(255)) AS path
+    FROM
+        TBL_Hierarchy h
+    JOIN
+        Temp_Level3 p ON h.hierarchyId = p.parentId
+    GROUP BY
+        h.hierarchyId, h.parentId, h.level, h.sequenceOrder, p.category, p.timing, p.path
+);
+
+
+CREATE TEMPORARY TABLE Temp_Level1 AS (
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        p.category,
+        NULL AS timing,
+        NULL AS otpCode,
+        NULL AS differenceName,
+        SUM(p.amount) AS amount,
+        CAST(p.path || ' -> ' || RTRIM(CHAR(h.hierarchyId)) AS VARCHAR(255)) AS path
+    FROM
+        TBL_Hierarchy h
+    JOIN
+        Temp_Level2 p ON h.hierarchyId = p.parentId
+    GROUP BY
+        h.hierarchyId, h.parentId, h.level, h.sequenceOrder, p.category, p.path
+);
+
+
+SELECT * FROM Temp_Level1
+UNION ALL
+SELECT * FROM Temp_Level2
+UNION ALL
+SELECT * FROM Temp_Level3
+UNION ALL
+SELECT * FROM Temp_Level4
+ORDER BY category, timing, otpCode, differenceName;
+
