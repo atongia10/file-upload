@@ -422,3 +422,105 @@ UNION ALL
 SELECT * FROM Temp_Level4
 ORDER BY category, timing, otpCode, differenceName;
 
+==
+
+-- Level 4 (Differences)
+SELECT
+    h4.hierarchyId,
+    h4.level,
+    d4.differenceCategory AS category,
+    d4.differenceTiming AS timing,
+    m4.otpCode,
+    d4.differenceName,
+    b4.amount,
+    CAST(d4.differenceCategory AS VARCHAR(255)) AS path
+FROM
+    TBL_Hierarchy h4
+LEFT JOIN
+    TBL_Difference d4 ON h4.differenceId = d4.differenceId
+LEFT JOIN
+    TBL_OTP_DIFFERENCE_MAPPING m4 ON h4.differenceId = m4.differenceId
+LEFT JOIN
+    TBL_Balance b4 ON d4.differenceId = b4.differenceId
+WHERE
+    h4.level = 4
+
+UNION ALL
+
+-- Level 3 (OTP Level)
+SELECT
+    h3.hierarchyId,
+    h3.level,
+    d3.differenceCategory AS category,
+    d3.differenceTiming AS timing,
+    m3.otpCode,
+    NULL AS differenceName,
+    SUM(b4.amount) AS amount,
+    CAST(d3.differenceCategory || ' -> ' || RTRIM(CHAR(h3.hierarchyId)) AS VARCHAR(255)) AS path
+FROM
+    TBL_Hierarchy h3
+JOIN
+    TBL_Hierarchy h4 ON h4.parentId = h3.hierarchyId
+LEFT JOIN
+    TBL_Difference d3 ON h3.differenceId = d3.differenceId
+LEFT JOIN
+    TBL_OTP_DIFFERENCE_MAPPING m3 ON h3.differenceId = m3.differenceId
+LEFT JOIN
+    TBL_Balance b4 ON h4.differenceId = b4.differenceId
+WHERE
+    h3.level = 3
+GROUP BY
+    h3.hierarchyId, h3.level, d3.differenceCategory, d3.differenceTiming, m3.otpCode
+
+UNION ALL
+
+-- Level 2 (Timing Level)
+SELECT
+    h2.hierarchyId,
+    h2.level,
+    d2.differenceCategory AS category,
+    d2.differenceTiming AS timing,
+    NULL AS otpCode,
+    NULL AS differenceName,
+    SUM(b3.amount) AS amount,
+    CAST(d2.differenceCategory || ' -> ' || RTRIM(CHAR(h2.hierarchyId)) AS VARCHAR(255)) AS path
+FROM
+    TBL_Hierarchy h2
+JOIN
+    TBL_Hierarchy h3 ON h3.parentId = h2.hierarchyId
+LEFT JOIN
+    TBL_Difference d2 ON h2.differenceId = d2.differenceId
+LEFT JOIN
+    TBL_Balance b3 ON h3.differenceId = b3.differenceId
+WHERE
+    h2.level = 2
+GROUP BY
+    h2.hierarchyId, h2.level, d2.differenceCategory, d2.differenceTiming
+
+UNION ALL
+
+-- Level 1 (Category Level)
+SELECT
+    h1.hierarchyId,
+    h1.level,
+    d1.differenceCategory AS category,
+    NULL AS timing,
+    NULL AS otpCode,
+    NULL AS differenceName,
+    SUM(b2.amount) AS amount,
+    CAST(d1.differenceCategory || ' -> ' || RTRIM(CHAR(h1.hierarchyId)) AS VARCHAR(255)) AS path
+FROM
+    TBL_Hierarchy h1
+JOIN
+    TBL_Hierarchy h2 ON h2.parentId = h1.hierarchyId
+LEFT JOIN
+    TBL_Difference d1 ON h1.differenceId = d1.differenceId
+LEFT JOIN
+    TBL_Balance b2 ON h2.differenceId = b2.differenceId
+WHERE
+    h1.level = 1
+GROUP BY
+    h1.hierarchyId, h1.level, d1.differenceCategory
+
+ORDER BY
+    category, timing, otpCode, differenceName;
