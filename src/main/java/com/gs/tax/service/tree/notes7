@@ -95,3 +95,173 @@ Clear Sorting: The final output is sorted by category, timing, otpCode, and diff
 This design should serve your needs well for organizing, querying, and presenting hierarchical financial data or any other data with similar requirements. If any further adjustments or refinements are needed down the line, you can always revisit and fine-tune the setup.
 
 If everything looks good, you can go ahead and implement this in your environment!
+
+===
+
+CREATE TABLE TBL_Difference (
+    differenceId INT PRIMARY KEY,
+    differenceName VARCHAR(100),
+    differenceCategory VARCHAR(100),
+    differenceTiming VARCHAR(50)
+);
+
+
+CREATE TABLE TBL_OTP_DIFFERENCE_MAPPING (
+    mappingId INT PRIMARY KEY,
+    otpCode VARCHAR(50),
+    differenceId INT,
+    FOREIGN KEY (differenceId) REFERENCES TBL_Difference(differenceId)
+);
+
+
+CREATE TABLE TBL_Balance (
+    balanceId INT PRIMARY KEY,
+    differenceId INT,
+    amount DECIMAL(18, 2),
+    FOREIGN KEY (differenceId) REFERENCES TBL_Difference(differenceId)
+);
+
+
+CREATE TABLE TBL_Hierarchy (
+    hierarchyId INT PRIMARY KEY,
+    parentId INT,
+    differenceId INT,
+    level INT,
+    sequenceOrder INT,
+    FOREIGN KEY (differenceId) REFERENCES TBL_Difference(differenceId),
+    FOREIGN KEY (parentId) REFERENCES TBL_Hierarchy(hierarchyId)
+);
+
+
+INSERT INTO TBL_Difference (differenceId, differenceName, differenceCategory, differenceTiming)
+VALUES
+(1, 'A1', 'Gaap to Stat', 'Permanent'),
+(2, 'A2', 'Gaap to Stat', 'Temporary'),
+(3, 'A3', 'Stat to Tax', 'Permanent'),
+(4, 'A4', 'Stat to Tax', 'Temporary'),
+(5, 'A5', 'Gaap to Stat', 'Permanent'),
+(6, 'A6', 'Stat to Tax', 'Temporary'),
+(7, 'A7', 'NOL', 'Permanent'),
+(8, 'A8', 'NOL', 'Temporary');
+
+
+INSERT INTO TBL_OTP_DIFFERENCE_MAPPING (mappingId, otpCode, differenceId)
+VALUES
+(1, 'PQR', 1),
+(2, 'PQR', 2),
+(3, 'PQR', 5),
+(4, 'STV', 3),
+(5, 'STV', 6),
+(6, 'XYZ', 7),
+(7, 'XYZ', 8);
+
+
+INSERT INTO TBL_Balance (balanceId, differenceId, amount)
+VALUES
+(1, 1, 100.00),
+(2, 2, 150.00),
+(3, 3, 200.00),
+(4, 4, 250.00),
+(5, 5, 300.00),
+(6, 6, 400.00),
+(7, 7, 500.00),
+(8, 8, 600.00);
+
+
+-- Root Level (Category)
+INSERT INTO TBL_Hierarchy (hierarchyId, parentId, differenceId, level, sequenceOrder)
+VALUES
+(1, NULL, NULL, 1, 1),  -- Gaap to Stat (X1)
+(2, NULL, NULL, 1, 2),  -- Stat to Tax (X2)
+(3, NULL, NULL, 1, 3);  -- NOL (X3)
+
+-- Timing Level
+INSERT INTO TBL_Hierarchy (hierarchyId, parentId, differenceId, level, sequenceOrder)
+VALUES
+(4, 1, NULL, 2, 1),  -- Permanent (Y1) under Gaap to Stat
+(5, 1, NULL, 2, 2),  -- Temporary (Y2) under Gaap to Stat
+(6, 2, NULL, 2, 1),  -- Permanent (Y3) under Stat to Tax
+(7, 2, NULL, 2, 2),  -- Temporary (Y4) under Stat to Tax
+(8, 3, NULL, 2, 1),  -- Permanent (Y5) under NOL
+(9, 3, NULL, 2, 2);  -- Temporary (Y6) under NOL
+
+-- OTP Level
+INSERT INTO TBL_Hierarchy (hierarchyId, parentId, differenceId, level, sequenceOrder)
+VALUES
+(10, 4, NULL, 3, 1),  -- OTP1 (Z1) under Gaap to Stat -> Permanent
+(11, 5, NULL, 3, 1),  -- OTP1 (Z2) under Gaap to Stat -> Temporary
+(12, 6, NULL, 3, 1),  -- OTP2 (Z3) under Stat to Tax -> Permanent
+(13, 7, NULL, 3, 1),  -- OTP3 (Z4) under Stat to Tax -> Temporary
+(14, 8, NULL, 3, 1),  -- OTP4 (Z5) under NOL -> Permanent
+(15, 9, NULL, 3, 1);  -- OTP5 (Z6) under NOL -> Temporary
+
+-- Differences Level
+INSERT INTO TBL_Hierarchy (hierarchyId, parentId, differenceId, level, sequenceOrder)
+VALUES
+(16, 10, 1, 4, 1),  -- A1 under Gaap to Stat -> Permanent -> OTP1
+(17, 11, 2, 4, 1),  -- A2 under Gaap to Stat -> Temporary -> OTP1
+(18, 10, 5, 4, 2),  -- A5 under Gaap to Stat -> Permanent -> OTP1
+(19, 12, 3, 4, 1),  -- A3 under Stat to Tax -> Permanent -> OTP2
+(20, 13, 6, 4, 1),  -- A6 under Stat to Tax -> Temporary -> OTP3
+(21, 14, 7, 4, 1),  -- A7 under NOL -> Permanent -> OTP4
+(22, 15, 8, 4, 1);  -- A8 under NOL -> Temporary -> OTP5
+
+
+WITH RecursiveHierarchy (hierarchyId, parentId, level, sequenceOrder, category, timing, otpCode, differenceName, amount, path) AS (
+    -- Start with the lowest level (Differences)
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        d.differenceCategory AS category,
+        d.differenceTiming AS timing,
+        m.otpCode,
+        d.differenceName,
+        b.amount,
+        CAST(d.differenceCategory AS VARCHAR(255)) AS path
+    FROM
+        TBL_Hierarchy h
+    LEFT JOIN
+        TBL_Difference d ON h.differenceId = d.differenceId
+    LEFT JOIN
+        TBL_OTP_DIFFERENCE_MAPPING m ON h.differenceId = m.differenceId
+    LEFT JOIN
+        TBL_Balance b ON d.differenceId = b.differenceId
+    WHERE
+        h.level = 4  -- Start with the lowest level (Differences)
+
+    UNION ALL
+
+    -- Recursive part: aggregate amounts as we move up the hierarchy
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        p.category,
+        p.timing,
+        p.otpCode,
+        NULL AS differenceName,
+        SUM(p.amount) AS amount,  -- Aggregate amount from lower levels
+        CONCAT(p.path, ' -> ', h.hierarchyId) AS path
+    FROM
+        TBL_Hierarchy h
+    JOIN
+        RecursiveHierarchy p ON h.hierarchyId = p.parentId
+    GROUP BY
+        h.hierarchyId, h.parentId, h.level, h.sequenceOrder, p.category, p.timing, p.otpCode, p.path
+)
+SELECT
+    hierarchyId,
+    level,
+    category,
+    timing,
+    otpCode,
+    differenceName,
+    amount,
+    path
+FROM
+    RecursiveHierarchy
+ORDER BY
+    category, timing, otpCode, differenceName;
