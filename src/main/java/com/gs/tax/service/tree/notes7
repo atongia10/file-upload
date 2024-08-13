@@ -265,3 +265,63 @@ FROM
     RecursiveHierarchy
 ORDER BY
     category, timing, otpCode, differenceName;
+
+
+WITH RecursiveHierarchy (hierarchyId, parentId, level, sequenceOrder, category, timing, otpCode, differenceName, amount, path) AS (
+    -- Start with the lowest level (Differences)
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        d.differenceCategory AS category,
+        d.differenceTiming AS timing,
+        m.otpCode,
+        d.differenceName,
+        b.amount,
+        VARCHAR(d.differenceCategory) AS path
+    FROM
+        TBL_Hierarchy h
+    LEFT JOIN
+        TBL_Difference d ON h.differenceId = d.differenceId
+    LEFT JOIN
+        TBL_OTP_DIFFERENCE_MAPPING m ON h.differenceId = m.differenceId
+    LEFT JOIN
+        TBL_Balance b ON d.differenceId = b.differenceId
+    WHERE
+        h.level = 4  -- Start with the lowest level (Differences)
+
+    UNION ALL
+
+    -- Recursive part: aggregate amounts as we move up the hierarchy
+    SELECT
+        h.hierarchyId,
+        h.parentId,
+        h.level,
+        h.sequenceOrder,
+        p.category,
+        p.timing,
+        p.otpCode,
+        NULL AS differenceName,
+        SUM(p.amount) AS amount,  -- Aggregate amount from lower levels
+        VARCHAR(p.path || ' -> ' || RTRIM(CHAR(h.hierarchyId))) AS path
+    FROM
+        TBL_Hierarchy h
+    JOIN
+        RecursiveHierarchy p ON h.hierarchyId = p.parentId
+    GROUP BY
+        h.hierarchyId, h.parentId, h.level, h.sequenceOrder, p.category, p.timing, p.otpCode, p.path
+)
+SELECT
+    hierarchyId,
+    level,
+    category,
+    timing,
+    otpCode,
+    differenceName,
+    amount,
+    path
+FROM
+    RecursiveHierarchy
+ORDER BY
+    category, timing, otpCode, differenceName;
