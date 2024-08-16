@@ -380,3 +380,90 @@ spring.jpa.hibernate.ddl-auto=none
 spring.datasource.schema=classpath:schema.sql
 spring.datasource.data=classpath:data.sql
 
+package com.example.reporting.service;
+
+import com.example.reporting.entity.*;
+import com.example.reporting.repository.*;
+import com.example.reporting.dto.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class ReportingService {
+
+    @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Autowired
+    private DifferenceRepository differenceRepository;
+
+    @Autowired
+    private OtpDifferenceMappingRepository otpDifferenceMappingRepository;
+
+    @Autowired
+    private BalanceRepository balanceRepository;
+
+    @Autowired
+    private JurisdictionObligationDifferenceRegisterRepository jurisdictionObligationDifferenceRegisterRepository;
+
+    public List<CategoryResponse> getReport(Long jurisdictionId, Long obligationId, Long periodId) {
+        List<Category> categories = categoryRepository.findAll();
+        List<CategoryResponse> response = new ArrayList<>();
+        double ptbi = 50;  // Example PTBI value, replace with actual as needed
+
+        for (Category category : categories) {
+            CategoryResponse categoryResponse = new CategoryResponse(category.getCustomName(), category.getSequence());
+            double categoryTotal = 0;
+
+            List<Difference> differences = differenceRepository.findByCategory(category.getCategoryName());
+            Map<String, TimingResponse> timingMap = new HashMap<>();
+
+            for (Difference difference : differences) {
+                List<Balance> balances = balanceRepository
+                        .findByJurisdictionObligationIdAndPeriodId(jurisdictionId, periodId);
+
+                for (Balance balance : balances) {
+                    if (balance.getDifferenceId().equals(difference.getDifferenceId())) {
+                        TimingResponse timingResponse = timingMap.computeIfAbsent(difference.getTiming(),
+                                k -> new TimingResponse(difference.getTiming()));
+
+                        double timingTotal = timingResponse.getTotal();
+                        List<OtpDifferenceMapping> otpMappings = otpDifferenceMappingRepository.findByDifference(difference);
+
+                        for (OtpDifferenceMapping otpMapping : otpMappings) {
+                            OtpCodeResponse otpCodeResponse = timingResponse.getOtpCodes()
+                                    .computeIfAbsent(otpMapping.getOtpCode(), k -> new OtpCodeResponse(otpMapping.getOtpCode()));
+
+                            double otpTotal = otpCodeResponse.getTotal();
+                            otpCodeResponse.addDifference(new DifferenceResponse(difference.getDifferenceName(), balance.getAmount()));
+                            otpTotal += balance.getAmount();
+                            otpCodeResponse.setTotal(otpTotal);
+
+                            timingTotal += balance.getAmount();
+                        }
+
+                        timingResponse.setTotal(timingTotal);
+                        categoryTotal += timingTotal;
+                    }
+                }
+            }
+
+            if (category.getSequence() == 1) {
+                categoryTotal += ptbi;  // Add PTBI only to the first category
+            } else if (!response.isEmpty()) {
+                CategoryResponse previousCategory = response.get(response.size() - 1);
+                categoryTotal += previousCategory.getTotal();  // Add the total of the previous category
+            }
+
+            categoryResponse.setTotal(categoryTotal);
+            timingMap.values().forEach(categoryResponse::addTiming);
+
+            response.add(categoryResponse);
+        }
+
+        return response;
+    }
+}
+
