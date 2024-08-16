@@ -299,4 +299,84 @@ spring.h2.console.enabled=true
 
 curl "http://localhost:8080/api/report?jurisdictionId=1&obligationId=1&periodId=1"
 
+==
+DROP TABLE IF EXISTS tbl_category;
+DROP TABLE IF EXISTS tbl_difference;
+DROP TABLE IF EXISTS tbl_otp_difference_mapping;
+DROP TABLE IF EXISTS tbl_balances;
+DROP TABLE IF EXISTS jurisdiction_obligation_difference_register;
+
+CREATE TABLE tbl_category (
+    category_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    category_name VARCHAR(255),
+    sequence INT,
+    custom_name VARCHAR(255)
+);
+
+CREATE TABLE tbl_difference (
+    difference_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    difference_name VARCHAR(255),
+    category VARCHAR(255),
+    timing VARCHAR(255)
+);
+
+CREATE TABLE tbl_otp_difference_mapping (
+    mapping_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    otp_code VARCHAR(255),
+    difference_id BIGINT,
+    FOREIGN KEY (difference_id) REFERENCES tbl_difference(difference_id)
+);
+
+CREATE TABLE tbl_balances (
+    balance_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    mapping_id BIGINT,
+    jurisdiction_obligation_id BIGINT,
+    difference_id BIGINT,
+    amount DOUBLE,
+    period_id BIGINT,
+    FOREIGN KEY (mapping_id) REFERENCES tbl_otp_difference_mapping(mapping_id),
+    FOREIGN KEY (difference_id) REFERENCES tbl_difference(difference_id)
+);
+
+CREATE TABLE jurisdiction_obligation_difference_register (
+    jod_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    jurisdiction_obligation_id BIGINT,
+    difference_id BIGINT,
+    FOREIGN KEY (difference_id) REFERENCES tbl_difference(difference_id)
+);
+
+	INSERT INTO tbl_category (category_name, sequence, custom_name) VALUES
+    ('Category1', 1, 'Custom Category Name 1'),
+    ('Category2', 2, 'Custom Category Name 2');
+
+    INSERT INTO tbl_difference (difference_name, category, timing) VALUES
+    ('Penalties', 'Category1', 'Timing1'),
+    ('GAAP to STAT', 'Category1', 'Timing1'),
+    ('Permanent', 'Category2', 'Timing2');
+
+    INSERT INTO tbl_otp_difference_mapping (otp_code, difference_id) VALUES
+    ('OTP1', 1),
+    ('OTP1', 2),
+    ('OTP2', 3);
+
+    INSERT INTO tbl_balances (mapping_id, jurisdiction_obligation_id, difference_id, amount, period_id) VALUES
+    (1, 1, 1, 100, 1),
+    (2, 1, 2, 150, 1),
+    (3, 2, 3, 200, 1);
+
+    INSERT INTO jurisdiction_obligation_difference_register (jurisdiction_obligation_id, difference_id) VALUES
+    (1, 1),
+    (1, 2),
+    (2, 3);
+
+
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.h2.console.enabled=true
+spring.jpa.hibernate.ddl-auto=none
+spring.datasource.schema=classpath:schema.sql
+spring.datasource.data=classpath:data.sql
 
