@@ -466,4 +466,98 @@ public class ReportingService {
         return response;
     }
 }
+====
+package com.example.reporting.service;
+
+import com.example.reporting.entity.*;
+import com.example.reporting.repository.*;
+import com.example.reporting.dto.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class ReportingService {
+
+    @Autowired
+    private CategoryRepository categoryRepository;
+
+    @Autowired
+    private DifferenceRepository differenceRepository;
+
+    @Autowired
+    private OtpDifferenceMappingRepository otpDifferenceMappingRepository;
+
+    @Autowired
+    private BalanceRepository balanceRepository;
+
+    @Autowired
+    private JurisdictionObligationDifferenceRegisterRepository jurisdictionObligationDifferenceRegisterRepository;
+
+    public List<CategoryResponse> getReport(Long jurisdictionId, Long obligationId, Long periodId) {
+        List<Category> categories = categoryRepository.findAll();
+        List<CategoryResponse> response = new ArrayList<>();
+        double ptbi = 50;  // Example PTBI value, replace with actual as needed
+
+        double previousCategoryTotal = 0;
+
+        for (Category category : categories) {
+            CategoryResponse categoryResponse = new CategoryResponse(category.getCustomName(), category.getSequence());
+            double categoryTotal = 0;
+
+            List<Difference> differences = differenceRepository.findByCategory(category.getCategoryName());
+            Map<String, TimingResponse> timingMap = new HashMap<>();
+
+            for (Difference difference : differences) {
+                // Check if the difference belongs to the given jurisdiction and obligation
+                List<Balance> balances = balanceRepository
+                        .findByJurisdictionObligationIdAndPeriodId(jurisdictionId, periodId);
+
+                for (Balance balance : balances) {
+                    if (balance.getDifferenceId().equals(difference.getDifferenceId())) {
+                        // Add to the timing total
+                        TimingResponse timingResponse = timingMap.computeIfAbsent(difference.getTiming(),
+                                k -> new TimingResponse(difference.getTiming()));
+
+                        // Add to the OTP total
+                        List<OtpDifferenceMapping> otpMappings = otpDifferenceMappingRepository.findByDifference(difference);
+                        for (OtpDifferenceMapping otpMapping : otpMappings) {
+                            OtpCodeResponse otpCodeResponse = timingResponse.getOtpCodes()
+                                    .computeIfAbsent(otpMapping.getOtpCode(), k -> new OtpCodeResponse(otpMapping.getOtpCode()));
+
+                            otpCodeResponse.addDifference(new DifferenceResponse(difference.getDifferenceName(), balance.getAmount()));
+                            otpCodeResponse.setTotal(otpCodeResponse.getTotal() + balance.getAmount());
+
+                            // Add to the timing total
+                            timingResponse.setTotal(timingResponse.getTotal() + balance.getAmount());
+                        }
+                    }
+                }
+            }
+
+            // Accumulate timing totals into category total
+            for (TimingResponse timingResponse : timingMap.values()) {
+                categoryTotal += timingResponse.getTotal();
+                categoryResponse.addTiming(timingResponse);
+            }
+
+            // For Category1, add PTBI
+            if (category.getSequence() == 1) {
+                categoryTotal += ptbi;
+            }
+
+            // For other categories, add the previous category's total
+            categoryTotal += previousCategoryTotal;
+            categoryResponse.setTotal(categoryTotal);
+
+            // Update previous category total for the next iteration
+            previousCategoryTotal = categoryTotal;
+
+            response.add(categoryResponse);
+        }
+
+        return response;
+    }
+}
 
