@@ -1,0 +1,482 @@
+package com.example.reporting.entity;
+
+import jakarta.persistence.*;
+import lombok.Getter;
+import lombok.Setter;
+
+@Entity
+@Table(name = "TBL_Difference")
+@Getter
+@Setter
+public class Difference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long differenceId;
+
+    private String differenceName;
+    private String category;
+    private String timing;
+}
+
+@Entity
+@Table(name = "TBL_JURISDICTION")
+@Getter
+@Setter
+public class Jurisdiction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jurisdictionId;
+
+    private String jurisdictionName;
+}
+
+@Entity
+@Table(name = "TBL_OBLIGATION")
+@Getter
+@Setter
+public class Obligation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long obligationId;
+
+    private String obligationName;
+}
+
+@Entity
+@Table(name = "TBL_JURISDICTION_OBLIGATION")
+@Getter
+@Setter
+public class JurisdictionObligation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jurisdictionObligationId;
+
+    @ManyToOne
+    @JoinColumn(name = "jurisdictionId")
+    private Jurisdiction jurisdiction;
+
+    @ManyToOne
+    @JoinColumn(name = "obligationId")
+    private Obligation obligation;
+}
+
+@Entity
+@Table(name = "TBL_JURISDICTION_OBLIGATION_DIFFERENCE")
+@Getter
+@Setter
+public class JurisdictionObligationDifference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jurisdictionObligationDifferenceId;
+
+    @ManyToOne
+    @JoinColumn(name = "jurisdictionObligationId")
+    private JurisdictionObligation jurisdictionObligation;
+
+    @ManyToOne
+    @JoinColumn(name = "differenceId")
+    private Difference difference;
+}
+
+@Entity
+@Table(name = "TBL_OTP_CODE")
+@Getter
+@Setter
+public class OtpCode {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long otpId;
+
+    private String otpCode;
+    private String otpCodeDescription;
+}
+
+@Entity
+@Table(name = "TBL_OTP_CODE_DIFFERENCE_MAPPING")
+@Getter
+@Setter
+public class OtpCodeDifferenceMapping {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long otpCodeDifferenceId;
+
+    @ManyToOne
+    @JoinColumn(name = "otpId")
+    private OtpCode otpCode;
+
+    @ManyToOne
+    @JoinColumn(name = "differenceId")
+    private Difference difference;
+}
+
+@Entity
+@Table(name = "TBL_Balances")
+@Getter
+@Setter
+public class Balance {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long balanceId;
+
+    @ManyToOne
+    @JoinColumn(name = "jurisdictionObligationDifferenceId")
+    private JurisdictionObligationDifference jurisdictionObligationDifference;
+
+    private Long periodId;
+    private double amount;
+}
+
+package com.example.reporting.repository;
+
+import com.example.reporting.entity.*;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface DifferenceRepository extends JpaRepository<Difference, Long> {
+}
+
+@Repository
+public interface JurisdictionRepository extends JpaRepository<Jurisdiction, Long> {
+}
+
+@Repository
+public interface ObligationRepository extends JpaRepository<Obligation, Long> {
+}
+
+@Repository
+public interface JurisdictionObligationRepository extends JpaRepository<JurisdictionObligation, Long> {
+    JurisdictionObligation findByJurisdictionAndObligation(Jurisdiction jurisdiction, Obligation obligation);
+}
+
+@Repository
+public interface JurisdictionObligationDifferenceRepository extends JpaRepository<JurisdictionObligationDifference, Long> {
+    List<JurisdictionObligationDifference> findByJurisdictionObligation(JurisdictionObligation jurisdictionObligation);
+}
+
+@Repository
+public interface OtpCodeDifferenceMappingRepository extends JpaRepository<OtpCodeDifferenceMapping, Long> {
+    List<OtpCodeDifferenceMapping> findByDifference(Difference difference);
+}
+
+@Repository
+public interface BalanceRepository extends JpaRepository<Balance, Long> {
+    List<Balance> findByJurisdictionObligationDifferenceAndPeriodId(JurisdictionObligationDifference jurisdictionObligationDifference, Long periodId);
+}
+
+
+package com.example.reporting.service;
+
+import com.example.reporting.dto.*;
+import com.example.reporting.entity.*;
+import com.example.reporting.repository.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+@Service
+public class ReportingService {
+
+    @Autowired
+    private JurisdictionRepository jurisdictionRepository;
+
+    @Autowired
+    private ObligationRepository obligationRepository;
+
+    @Autowired
+    private JurisdictionObligationRepository jurisdictionObligationRepository;
+
+    @Autowired
+    private JurisdictionObligationDifferenceRepository jurisdictionObligationDifferenceRepository;
+
+    @Autowired
+    private OtpCodeDifferenceMappingRepository otpCodeDifferenceMappingRepository;
+
+    @Autowired
+    private BalanceRepository balanceRepository;
+
+    public List<CategoryResponse> getReport(Long periodId, Long jurisdictionId, Long obligationId) {
+        Jurisdiction jurisdiction = jurisdictionRepository.findById(jurisdictionId).orElse(null);
+        Obligation obligation = obligationRepository.findById(obligationId).orElse(null);
+        JurisdictionObligation jurisdictionObligation = jurisdictionObligationRepository.findByJurisdictionAndObligation(jurisdiction, obligation);
+
+        if (jurisdictionObligation == null) {
+            return Collections.emptyList();  // Handle no results case
+        }
+
+        List<JurisdictionObligationDifference> jurisdictionObligationDifferences = jurisdictionObligationDifferenceRepository
+                .findByJurisdictionObligation(jurisdictionObligation);
+
+        Map<String, CategoryResponse> categoryResponseMap = new LinkedHashMap<>();
+        double previousCategoryTotal = 0;
+        double ptbi = 50;  // Example PTBI value, replace with actual as needed
+
+        for (JurisdictionObligationDifference jod : jurisdictionObligationDifferences) {
+            Difference difference = jod.getDifference();
+
+            // Find or create CategoryResponse
+            CategoryResponse categoryResponse = categoryResponseMap.computeIfAbsent(
+                    difference.getCategory(),
+                    k -> new CategoryResponse(difference.getCategory(), categoryResponseMap.size() + 1)
+            );
+
+            // Find or create TimingResponse
+            TimingResponse timingResponse = categoryResponse.getTimings().stream()
+                    .filter(t -> t.getTiming().equals(difference.getTiming()))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        TimingResponse newTimingResponse = new TimingResponse(difference.getTiming());
+                        categoryResponse.addTiming(newTimingResponse);
+                        return newTimingResponse;
+                    });
+
+            // Retrieve balances
+            List<Balance> balances = balanceRepository.findByJurisdictionObligationDifferenceAndPeriodId(jod, periodId);
+            for (Balance balance : balances) {
+                List<OtpCodeDifferenceMapping> otpCodeMappings = otpCodeDifferenceMappingRepository.findByDifference(difference);
+
+                for (OtpCodeDifferenceMapping otpCodeMapping : otpCodeMappings) {
+                    // Find or create OtpCodeResponse
+                    OtpCodeResponse otpCodeResponse = timingResponse.getOtpCodes().computeIfAbsent(
+                            otpCodeMapping.getOtpCode().getOtpCode(),
+                            k -> new OtpCodeResponse(otpCodeMapping.getOtpCode().getOtpCode())
+                    );
+
+                    otpCodeResponse.addDifference(new DifferenceResponse(difference.getDifferenceName(), balance.getAmount()));
+                    otpCodeResponse.setTotal(otpCodeResponse.getTotal() + balance.getAmount());
+
+                    // Add to the timing total
+                    timingResponse.setTotal(timingResponse.getTotal() + balance.getAmount());
+                }
+            }
+
+            // Update the category total
+            categoryResponse.setTotal(categoryResponse.getTotal() + timingResponse.getTotal());
+        }
+
+        // Final adjustment for PTBI and previous category totals
+        for (CategoryResponse categoryResponse : categoryResponseMap.values()) {
+            if (categoryResponse.getSequence() == 1) {
+                categoryResponse.setTotal(categoryResponse.getTotal() + ptbi);
+            } else {
+                categoryResponse.setTotal(categoryResponse.getTotal() + previousCategoryTotal);
+            }
+            previousCategoryTotal = categoryResponse.getTotal();
+        }
+
+        return new ArrayList<>(categoryResponseMap.values());
+    }
+}
+
+
+package com.example.reporting.controller;
+
+import com.example.reporting.dto.CategoryResponse;
+import com.example.reporting.service.ReportingService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/report")
+public class ReportingController {
+
+    @Autowired
+    private ReportingService reportingService;
+
+    @GetMapping
+    public List<CategoryResponse> getReport(
+            @RequestParam Long periodId,
+            @RequestParam Long jurisdictionId,
+            @RequestParam Long obligationId) {
+        return reportingService.getReport(periodId, jurisdictionId, obligationId);
+    }
+}
+
+
+package com.example.reporting.dto;
+
+import lombok.Getter;
+import lombok.Setter;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+
+@Getter
+@Setter
+public class CategoryResponse {
+    private String name;
+    private int sequence;
+    private double total;
+    private List<TimingResponse> timings = new ArrayList<>();
+
+    public CategoryResponse(String name, int sequence) {
+        this.name = name;
+        this.sequence = sequence;
+        this.total = 0.0;  // Initialize the total to 0
+    }
+
+    public void addTiming(TimingResponse timing) {
+        this.timings.add(timing);
+    }
+}
+
+@Getter
+@Setter
+public class TimingResponse {
+    private String timing;
+    private double total;
+    private Map<String, OtpCodeResponse> otpCodes = new HashMap<>();
+
+    public TimingResponse(String timing) {
+        this.timing = timing;
+        this.total = 0.0;  // Initialize the total to 0
+    }
+}
+
+@Getter
+@Setter
+public class OtpCodeResponse {
+    private String otpCode;
+    private double total;
+    private List<DifferenceResponse> differences = new ArrayList<>();
+
+    public OtpCodeResponse(String otpCode) {
+        this.otpCode = otpCode;
+        this.total = 0.0;  // Initialize the total to 0
+    }
+
+    public void addDifference(DifferenceResponse difference) {
+        this.differences.add(difference);
+    }
+}
+
+@Getter
+@Setter
+public class DifferenceResponse {
+    private String differenceName;
+    private double amount;
+
+    public DifferenceResponse(String differenceName, double amount) {
+        this.differenceName = differenceName;
+        this.amount = amount;
+    }
+}
+
+
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.h2.console.enabled=true
+spring.jpa.hibernate.ddl-auto=none
+spring.datasource.schema=classpath:schema.sql
+spring.datasource.data=classpath:data.sql
+
+
+DROP TABLE IF EXISTS TBL_Balances;
+DROP TABLE IF EXISTS TBL_OTP_CODE_DIFFERENCE_MAPPING;
+DROP TABLE IF EXISTS TBL_OTP_CODE;
+DROP TABLE IF EXISTS TBL_JURISDICTION_OBLIGATION_DIFFERENCE;
+DROP TABLE IF EXISTS TBL_JURISDICTION_OBLIGATION;
+DROP TABLE IF EXISTS TBL_OBLIGATION;
+DROP TABLE IF EXISTS TBL_JURISDICTION;
+DROP TABLE IF EXISTS TBL_Difference;
+
+CREATE TABLE TBL_Difference (
+    differenceId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    differenceName VARCHAR(255),
+    category VARCHAR(255),
+    timing VARCHAR(255)
+);
+
+CREATE TABLE TBL_JURISDICTION (
+    jurisdictionId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    jurisdictionName VARCHAR(255)
+);
+
+CREATE TABLE TBL_OBLIGATION (
+    obligationId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    obligationName VARCHAR(255)
+);
+
+CREATE TABLE TBL_JURISDICTION_OBLIGATION (
+    jurisdictionObligationId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    jurisdictionId BIGINT,
+    obligationId BIGINT,
+    FOREIGN KEY (jurisdictionId) REFERENCES TBL_JURISDICTION(jurisdictionId),
+    FOREIGN KEY (obligationId) REFERENCES TBL_OBLIGATION(obligationId)
+);
+
+CREATE TABLE TBL_JURISDICTION_OBLIGATION_DIFFERENCE (
+    jurisdictionObligationDifferenceId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    jurisdictionObligationId BIGINT,
+    differenceId BIGINT,
+    FOREIGN KEY (jurisdictionObligationId) REFERENCES TBL_JURISDICTION_OBLIGATION(jurisdictionObligationId),
+    FOREIGN KEY (differenceId) REFERENCES TBL_Difference(differenceId)
+);
+
+CREATE TABLE TBL_OTP_CODE (
+    otpId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    otpCode VARCHAR(255),
+    otpCodeDescription VARCHAR(255)
+);
+
+CREATE TABLE TBL_OTP_CODE_DIFFERENCE_MAPPING (
+    otpCodeDifferenceId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    otpId BIGINT,
+    differenceId BIGINT,
+    FOREIGN KEY (otpId) REFERENCES TBL_OTP_CODE(otpId),
+    FOREIGN KEY (differenceId) REFERENCES TBL_Difference(differenceId)
+);
+
+CREATE TABLE TBL_Balances (
+    balanceId BIGINT AUTO_INCREMENT PRIMARY KEY,
+    jurisdictionObligationDifferenceId BIGINT,
+    periodId BIGINT,
+    amount DOUBLE,
+    FOREIGN KEY (jurisdictionObligationDifferenceId) REFERENCES TBL_JURISDICTION_OBLIGATION_DIFFERENCE(jurisdictionObligationDifferenceId)
+);
+
+
+-- TBL_Difference
+INSERT INTO TBL_Difference (differenceName, category, timing) VALUES ('Difference 1', 'Category1', 'Timing1');
+INSERT INTO TBL_Difference (differenceName, category, timing) VALUES ('Difference 2', 'Category1', 'Timing1');
+INSERT INTO TBL_Difference (differenceName, category, timing) VALUES ('Difference 3', 'Category2', 'Timing2');
+
+-- TBL_JURISDICTION
+INSERT INTO TBL_JURISDICTION (jurisdictionName) VALUES ('Jurisdiction A');
+
+-- TBL_OBLIGATION
+INSERT INTO TBL_OBLIGATION (obligationName) VALUES ('Obligation A');
+
+-- TBL_JURISDICTION_OBLIGATION
+INSERT INTO TBL_JURISDICTION_OBLIGATION (jurisdictionId, obligationId) VALUES (1, 1);
+
+-- TBL_JURISDICTION_OBLIGATION_DIFFERENCE
+INSERT INTO TBL_JURISDICTION_OBLIGATION_DIFFERENCE (jurisdictionObligationId, differenceId) VALUES (1, 1);
+INSERT INTO TBL_JURISDICTION_OBLIGATION_DIFFERENCE (jurisdictionObligationId, differenceId) VALUES (1, 2);
+INSERT INTO TBL_JURISDICTION_OBLIGATION_DIFFERENCE (jurisdictionObligationId, differenceId) VALUES (1, 3);
+
+-- TBL_OTP_CODE
+INSERT INTO TBL_OTP_CODE (otpCode, otpCodeDescription) VALUES ('OTP1', 'OTP Code 1');
+INSERT INTO TBL_OTP_CODE (otpCode, otpCodeDescription) VALUES ('OTP2', 'OTP Code 2');
+
+-- TBL_OTP_CODE_DIFFERENCE_MAPPING
+INSERT INTO TBL_OTP_CODE_DIFFERENCE_MAPPING (otpId, differenceId) VALUES (1, 1);
+INSERT INTO TBL_OTP_CODE_DIFFERENCE_MAPPING (otpId, differenceId) VALUES (1, 2);
+INSERT INTO TBL_OTP_CODE_DIFFERENCE_MAPPING (otpId, differenceId) VALUES (2, 3);
+
+-- TBL_Balances
+INSERT INTO TBL_Balances (jurisdictionObligationDifferenceId, periodId, amount) VALUES (1, 1, 100);
+INSERT INTO TBL_Balances (jurisdictionObligationDifferenceId, periodId, amount) VALUES (2, 1, 150);
+INSERT INTO TBL_Balances (jurisdictionObligationDifferenceId, periodId, amount) VALUES (3, 1, 200);
+
+
