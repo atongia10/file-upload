@@ -1,0 +1,230 @@
+jurisdiction.csv
+jurisdictionId,jurisdictionName
+1,Jurisdiction A
+2,Jurisdiction B
+
+obligation.csv
+obligationId,obligationName
+1,Obligation A
+2,Obligation B
+
+jurisdiction_obligation.csv
+jurisdictionObligationId,jurisdictionId,obligationId
+1,1,1
+2,1,2
+3,2,1
+4,2,2
+
+difference.csv
+differenceId,differenceName,category,timing
+1,Difference 1,Category1,Timing1
+2,Difference 2,Category1,Timing1
+3,Difference 3,Category2,Timing2
+4,Difference 4,Category1,Timing1
+
+jurisdiction_obligation_difference.csv
+jurisdictionObligationDifferenceId,jurisdictionObligationId,differenceId
+1,1,1
+2,1,2
+3,1,3
+4,1,4
+
+otp_code.csv
+otpId,otpCode,otpCodeDescription
+1,OTP1,OTP Code 1
+2,OTP2,OTP Code 2
+
+otp_code_difference_mapping.csv
+otpCodeDifferenceId,otpId,differenceId
+1,1,1
+2,1,2
+3,2,3
+4,1,4
+
+balances.csv
+balanceId,jurisdictionObligationDifferenceId,periodId,amount
+1,1,1,100
+2,2,1,150
+3,3,1,200
+4,4,1,120
+
+
+package com.example.reporting.service;
+
+import com.example.reporting.entity.*;
+import com.example.reporting.repository.*;
+import com.opencsv.CSVReader;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+import javax.persistence.EntityManager;
+import javax.transaction.Transactional;
+import java.io.FileReader;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.when;
+
+class ReportingServiceTest {
+
+    @InjectMocks
+    private ReportingService reportingService;
+
+    @Mock
+    private JurisdictionRepository jurisdictionRepository;
+
+    @Mock
+    private ObligationRepository obligationRepository;
+
+    @Mock
+    private JurisdictionObligationRepository jurisdictionObligationRepository;
+
+    @Mock
+    private JurisdictionObligationDifferenceRepository jurisdictionObligationDifferenceRepository;
+
+    @Mock
+    private OtpCodeDifferenceMappingRepository otpCodeDifferenceMappingRepository;
+
+    @Mock
+    private BalanceRepository balanceRepository;
+
+    @Mock
+    private EntityManager entityManager;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    @Transactional
+    void testGetReport() throws Exception {
+        // Load CSV data and populate the database
+        loadData();
+
+        // Now, we can mock the repository calls based on the data loaded from CSV
+        when(jurisdictionRepository.findById(1L)).thenReturn(Optional.of(entityManager.find(Jurisdiction.class, 1L)));
+        when(obligationRepository.findById(1L)).thenReturn(Optional.of(entityManager.find(Obligation.class, 1L)));
+        when(jurisdictionObligationRepository.findByJurisdictionAndObligation(entityManager.find(Jurisdiction.class, 1L), entityManager.find(Obligation.class, 1L)))
+                .thenReturn(entityManager.find(JurisdictionObligation.class, 1L));
+
+        // Perform the actual service call
+        List<CategoryResponse> result = reportingService.getReport(1L, 1L, 1L);
+
+        // Assert the results
+        assertEquals("Category1", result.get(0).getName());
+        assertEquals(420, result.get(0).getTotal());  // Timing1 total + PTBI
+        assertEquals("Category2", result.get(1).getName());
+        assertEquals(620, result.get(1).getTotal());  // Timing2 total + Category1 total
+    }
+
+    private void loadData() throws Exception {
+        loadJurisdictionData();
+        loadObligationData();
+        loadJurisdictionObligationData();
+        loadDifferenceData();
+        loadJurisdictionObligationDifferenceData();
+        loadOtpCodeData();
+        loadOtpCodeDifferenceMappingData();
+        loadBalancesData();
+    }
+
+    private void loadJurisdictionData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/jurisdiction.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                Jurisdiction jurisdiction = new Jurisdiction();
+                jurisdiction.setJurisdictionId(Long.parseLong(line[0]));
+                jurisdiction.setJurisdictionName(line[1]);
+                entityManager.persist(jurisdiction);
+            }
+        }
+    }
+
+    private void loadObligationData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/obligation.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                Obligation obligation = new Obligation();
+                obligation.setObligationId(Long.parseLong(line[0]));
+                obligation.setObligationName(line[1]);
+                entityManager.persist(obligation);
+            }
+        }
+    }
+
+    private void loadJurisdictionObligationData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/jurisdiction_obligation.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                JurisdictionObligation jurisdictionObligation = new JurisdictionObligation();
+                jurisdictionObligation.setJurisdictionObligationId(Long.parseLong(line[0]));
+                jurisdictionObligation.setJurisdiction(entityManager.find(Jurisdiction.class, Long.parseLong(line[1])));
+                jurisdictionObligation.setObligation(entityManager.find(Obligation.class, Long.parseLong(line[2])));
+                entityManager.persist(jurisdictionObligation);
+            }
+        }
+    }
+
+    private void loadDifferenceData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/difference.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                Difference difference = new Difference();
+                difference.setDifferenceId(Long.parseLong(line[0]));
+                difference.setDifferenceName(line[1]);
+                difference.setCategory(line[2]);
+                difference.setTiming(line[3]);
+                entityManager.persist(difference);
+            }
+        }
+    }
+
+    private void loadJurisdictionObligationDifferenceData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/jurisdiction_obligation_difference.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                JurisdictionObligationDifference jurisdictionObligationDifference = new JurisdictionObligationDifference();
+                jurisdictionObligationDifference.setJurisdictionObligationDifferenceId(Long.parseLong(line[0]));
+                jurisdictionObligationDifference.setJurisdictionObligation(entityManager.find(JurisdictionObligation.class, Long.parseLong(line[1])));
+                jurisdictionObligationDifference.setDifference(entityManager.find(Difference.class, Long.parseLong(line[2])));
+                entityManager.persist(jurisdictionObligationDifference);
+            }
+        }
+    }
+
+    private void loadOtpCodeData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/otp_code.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                OtpCode otpCode = new OtpCode();
+                otpCode.setOtpId(Long.parseLong(line[0]));
+                otpCode.setOtpCode(line[1]);
+                otpCode.setOtpCodeDescription(line[2]);
+                entityManager.persist(otpCode);
+            }
+        }
+    }
+
+    private void loadOtpCodeDifferenceMappingData() throws Exception {
+        try (CSVReader reader = new CSVReader(new FileReader("src/test/resources/otp_code_difference_mapping.csv"))) {
+            String[] line;
+            while ((line = reader.readNext()) != null) {
+                OtpCodeDifferenceMapping mapping = new OtpCodeDifferenceMapping();
+                mapping.setOtpCodeDifferenceId(Long.parseLong(line[0]));
+                mapping.setOtpCode(entityManager.find(OtpCode.class, Long.parseLong(line[1])));
+                mapping.setDifference(entityManager.find(Difference.class, Long.parseLong(line[2])));
+                entityManager.persist(mapping);
+            }
+        }
+    }
+
+
+
+
+
