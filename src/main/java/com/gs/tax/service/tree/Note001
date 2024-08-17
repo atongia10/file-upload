@@ -1,0 +1,339 @@
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import jakarta.persistence.*;
+import java.util.*;
+
+@SpringBootApplication
+public class DemoApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+}
+
+@Entity
+class Difference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long differenceId;
+    private String differenceName;
+    private String category;
+    private String timing;
+
+    // Getters and Setters
+}
+
+@Entity
+class Jurisdiction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jurisdictionId;
+    private String jurisdictionName;
+
+    // Getters and Setters
+}
+
+@Entity
+class Obligation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long obligationId;
+    private String obligationName;
+
+    // Getters and Setters
+}
+
+@Entity
+class JurisdictionObligation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jurisdictionObligationId;
+
+    @ManyToOne
+    @JoinColumn(name = "jurisdictionId")
+    private Jurisdiction jurisdiction;
+
+    @ManyToOne
+    @JoinColumn(name = "obligationId")
+    private Obligation obligation;
+
+    // Getters and Setters
+}
+
+@Entity
+class JurisdictionObligationDifference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long jurisdictionObligationDifferenceId;
+
+    @ManyToOne
+    @JoinColumn(name = "jurisdictionObligationId")
+    private JurisdictionObligation jurisdictionObligation;
+
+    @ManyToOne
+    @JoinColumn(name = "differenceId")
+    private Difference difference;
+
+    // Getters and Setters
+}
+
+@Entity
+class OtpCode {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long otpId;
+    private String otpCode;
+    private String otpCodeDescription;
+
+    // Getters and Setters
+}
+
+@Entity
+class OtpCodeDifferenceMapping {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long otpCodeDifferenceId;
+
+    @ManyToOne
+    @JoinColumn(name = "otpId")
+    private OtpCode otpCode;
+
+    @ManyToOne
+    @JoinColumn(name = "differenceId")
+    private Difference difference;
+
+    // Getters and Setters
+}
+
+@Entity
+class Balance {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long balanceId;
+
+    @ManyToOne
+    @JoinColumn(name = "jurisdictionObligationDifferenceId")
+    private JurisdictionObligationDifference jurisdictionObligationDifference;
+
+    private Long periodId;
+    private double amount;
+
+    // Getters and Setters
+}
+
+// Repositories
+@Repository
+interface DifferenceRepository extends JpaRepository<Difference, Long> {
+}
+
+@Repository
+interface JurisdictionRepository extends JpaRepository<Jurisdiction, Long> {
+}
+
+@Repository
+interface ObligationRepository extends JpaRepository<Obligation, Long> {
+}
+
+@Repository
+interface JurisdictionObligationRepository extends JpaRepository<JurisdictionObligation, Long> {
+    JurisdictionObligation findByJurisdictionAndObligation(Jurisdiction jurisdiction, Obligation obligation);
+}
+
+@Repository
+interface JurisdictionObligationDifferenceRepository extends JpaRepository<JurisdictionObligationDifference, Long> {
+    List<JurisdictionObligationDifference> findByJurisdictionObligation(JurisdictionObligation jurisdictionObligation);
+}
+
+@Repository
+interface OtpCodeDifferenceMappingRepository extends JpaRepository<OtpCodeDifferenceMapping, Long> {
+    List<OtpCodeDifferenceMapping> findByDifference(Difference difference);
+}
+
+@Repository
+interface BalanceRepository extends JpaRepository<Balance, Long> {
+    List<Balance> findByJurisdictionObligationDifferenceAndPeriodId(JurisdictionObligationDifference jurisdictionObligationDifference, Long periodId);
+}
+
+// Service
+@Service
+class ReportingService {
+    private final JurisdictionRepository jurisdictionRepository;
+    private final ObligationRepository obligationRepository;
+    private final JurisdictionObligationRepository jurisdictionObligationRepository;
+    private final JurisdictionObligationDifferenceRepository jurisdictionObligationDifferenceRepository;
+    private final OtpCodeDifferenceMappingRepository otpCodeDifferenceMappingRepository;
+    private final BalanceRepository balanceRepository;
+
+    public ReportingService(JurisdictionRepository jurisdictionRepository, ObligationRepository obligationRepository,
+                            JurisdictionObligationRepository jurisdictionObligationRepository,
+                            JurisdictionObligationDifferenceRepository jurisdictionObligationDifferenceRepository,
+                            OtpCodeDifferenceMappingRepository otpCodeDifferenceMappingRepository,
+                            BalanceRepository balanceRepository) {
+        this.jurisdictionRepository = jurisdictionRepository;
+        this.obligationRepository = obligationRepository;
+        this.jurisdictionObligationRepository = jurisdictionObligationRepository;
+        this.jurisdictionObligationDifferenceRepository = jurisdictionObligationDifferenceRepository;
+        this.otpCodeDifferenceMappingRepository = otpCodeDifferenceMappingRepository;
+        this.balanceRepository = balanceRepository;
+    }
+
+    public List<CategoryResponse> getReport(Long periodId, Long jurisdictionId, Long obligationId) {
+        Jurisdiction jurisdiction = jurisdictionRepository.findById(jurisdictionId).orElse(null);
+        Obligation obligation = obligationRepository.findById(obligationId).orElse(null);
+        JurisdictionObligation jurisdictionObligation = jurisdictionObligationRepository.findByJurisdictionAndObligation(jurisdiction, obligation);
+
+        if (jurisdictionObligation == null) {
+            return Collections.emptyList();  // Handle no results case
+        }
+
+        List<JurisdictionObligationDifference> jurisdictionObligationDifferences = jurisdictionObligationDifferenceRepository
+                .findByJurisdictionObligation(jurisdictionObligation);
+
+        Map<String, CategoryResponse> categoryResponseMap = new LinkedHashMap<>();
+        double previousCategoryTotal = 0;
+        double ptbi = 50;  // Example PTBI value, replace with actual as needed
+
+        for (JurisdictionObligationDifference jod : jurisdictionObligationDifferences) {
+            Difference difference = jod.getDifference();
+
+            // Find or create CategoryResponse
+            CategoryResponse categoryResponse = categoryResponseMap.computeIfAbsent(
+                    difference.getCategory(),
+                    k -> new CategoryResponse(difference.getCategory(), categoryResponseMap.size() + 1)
+            );
+
+            // Find or create TimingResponse
+            TimingResponse timingResponse = categoryResponse.getTimings().stream()
+                    .filter(t -> t.getTiming().equals(difference.getTiming()))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        TimingResponse newTimingResponse = new TimingResponse(difference.getTiming());
+                        categoryResponse.addTiming(newTimingResponse);
+                        return newTimingResponse;
+                    });
+
+            // Retrieve balances
+            List<Balance> balances = balanceRepository.findByJurisdictionObligationDifferenceAndPeriodId(jod, periodId);
+            for (Balance balance : balances) {
+                List<OtpCodeDifferenceMapping> otpCodeMappings = otpCodeDifferenceMappingRepository.findByDifference(difference);
+
+                for (OtpCodeDifferenceMapping otpCodeMapping : otpCodeMappings) {
+                    // Find or create OtpCodeResponse
+                    OtpCodeResponse otpCodeResponse = timingResponse.getOtpCodes().computeIfAbsent(
+                            otpCodeMapping.getOtpCode().getOtpCode(),
+                            k -> new OtpCodeResponse(otpCodeMapping.getOtpCode().getOtpCode())
+                    );
+
+                    otpCodeResponse.addDifference(new DifferenceResponse(difference.getDifferenceName(), balance.getAmount()));
+                    otpCodeResponse.setTotal(otpCodeResponse.getTotal() + balance.getAmount());
+
+                    // Add to the timing total
+                    timingResponse.setTotal(timingResponse.getTotal() + balance.getAmount());
+                }
+            }
+
+            // Update the category total
+            categoryResponse.setTotal(categoryResponse.getTotal() + timingResponse.getTotal());
+        }
+
+        // Final adjustment for PTBI and previous category totals
+        for (CategoryResponse categoryResponse : categoryResponseMap.values()) {
+            if (categoryResponse.getSequence() == 1) {
+                categoryResponse.setTotal(categoryResponse.getTotal() + ptbi);
+            } else {
+                categoryResponse.setTotal(categoryResponse.getTotal() + previousCategoryTotal);
+            }
+            previousCategoryTotal = categoryResponse.getTotal();
+        }
+
+        return new ArrayList<>(categoryResponseMap.values());
+    }
+}
+
+// DTOs
+class CategoryResponse {
+    private String name;
+    private int sequence;
+    private double total;
+    private List<TimingResponse> timings = new ArrayList<>();
+
+    public CategoryResponse(String name, int sequence) {
+        this.name = name;
+        this.sequence = sequence;
+        this.total = 0.0;  // Initialize the total to 0
+    }
+
+    public void addTiming(TimingResponse timing) {
+        this.timings.add(timing);
+    }
+
+    // Getters and Setters
+}
+
+class TimingResponse {
+    private String timing;
+    private double total;
+    private Map<String, OtpCodeResponse> otpCodes = new HashMap<>();
+
+    public TimingResponse(String timing) {
+        this.timing = timing;
+        this.total = 0.0;  // Initialize the total to 0
+    }
+
+    // Getters and Setters
+}
+
+class OtpCodeResponse {
+    private String otpCode;
+    private double total;
+    private List<DifferenceResponse> differences = new ArrayList<>();
+
+    public OtpCodeResponse(String otpCode) {
+        this.otpCode = otpCode;
+        this.total = 0.0;  // Initialize the total to 0
+    }
+
+    public void addDifference(DifferenceResponse difference) {
+        this.differences.add(difference);
+    }
+
+    // Getters and Setters
+}
+
+class DifferenceResponse {
+    private String differenceName;
+    private double amount;
+
+    public DifferenceResponse(String differenceName, double amount) {
+        this.differenceName = differenceName;
+        this.amount = amount;
+    }
+
+    // Getters and Setters
+}
+
+// Controller
+@RestController
+class ReportingController {
+    private final ReportingService reportingService;
+
+    public ReportingController(ReportingService reportingService) {
+        this.reportingService = reportingService;
+    }
+
+    @GetMapping("/api/report")
+    public List<CategoryResponse> getReport(
+            @RequestParam Long periodId,
+            @RequestParam Long jurisdictionId,
+            @RequestParam Long obligationId) {
+        return reportingService.getReport(periodId, jurisdictionId, obligationId);
+    }
+}
