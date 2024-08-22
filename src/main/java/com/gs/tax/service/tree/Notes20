@@ -1,11 +1,16 @@
 package com.example.reporting;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
+import javax.persistence.*;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,7 +31,7 @@ public class ReportingApplication implements CommandLineRunner {
     @Override
     public void run(String... args) throws Exception {
         List<CategoryResponse> report = reportingService.getReport(1L, 1L, 1L);
-        System.out.println(report);
+        report.forEach(System.out::println);
     }
 }
 
@@ -60,7 +65,7 @@ class ReportingService {
 
     public List<CategoryResponse> getReport(Long periodId, Long jurisdictionId, Long obligationId) {
         JurisdictionObligation jurisdictionObligation = getJurisdictionObligation(jurisdictionId, obligationId);
-        if (jurisdictionObligation == null) return Collections.emptyList();
+        if (jurisdictionObligation == null) return List.of();
 
         Map<String, CategoryResponse> categoryResponseMap = new LinkedHashMap<>();
         double previousCategoryTotal = 0;
@@ -167,7 +172,15 @@ class CategoryResponse {
         this.timings.add(timing);
     }
 
-    // Getters and Setters
+    @Override
+    public String toString() {
+        return "CategoryResponse{" +
+                "name='" + name + '\'' +
+                ", sequence=" + sequence +
+                ", total=" + total +
+                ", timings=" + timings +
+                '}';
+    }
 }
 
 class TimingResponse {
@@ -184,7 +197,14 @@ class TimingResponse {
         this.otpCodes.add(otpCodeResponse);
     }
 
-    // Getters and Setters
+    @Override
+    public String toString() {
+        return "TimingResponse{" +
+                "timing='" + timing + '\'' +
+                ", total=" + total +
+                ", otpCodes=" + otpCodes +
+                '}';
+    }
 }
 
 class OtpCodeResponse {
@@ -203,7 +223,15 @@ class OtpCodeResponse {
         this.differences.add(difference);
     }
 
-    // Getters and Setters
+    @Override
+    public String toString() {
+        return "OtpCodeResponse{" +
+                "otpCode='" + otpCode + '\'' +
+                ", otpCodeDescription='" + otpCodeDescription + '\'' +
+                ", total=" + total +
+                ", differences=" + differences +
+                '}';
+    }
 }
 
 class DifferenceResponse {
@@ -215,42 +243,71 @@ class DifferenceResponse {
         this.amount = amount;
     }
 
-    // Getters and Setters
+    @Override
+    public String toString() {
+        return "DifferenceResponse{" +
+                "differenceName='" + differenceName + '\'' +
+                ", amount=" + amount +
+                '}';
+    }
 }
 
-// Entities (Simplified for Demonstration)
+// Entities
 
+@Entity
 class Jurisdiction {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long jurisdictionId;
     private String jurisdictionName;
 
     // Getters and Setters
 }
 
+@Entity
 class Obligation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long obligationId;
     private String obligationName;
 
     // Getters and Setters
 }
 
+@Entity
 class JurisdictionObligation {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long jurisdictionObligationId;
+
+    @ManyToOne
     private Jurisdiction jurisdiction;
+
+    @ManyToOne
     private Obligation obligation;
 
     // Getters and Setters
 }
 
+@Entity
 class JurisdictionObligationDifference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long jurisdictionObligationDifferenceId;
+
+    @ManyToOne
     private JurisdictionObligation jurisdictionObligation;
+
+    @ManyToOne
     private Difference difference;
 
     // Getters and Setters
 }
 
+@Entity
 class OtpCode {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long otpId;
     private String otpCode;
     private String otpCodeDescription;
@@ -258,24 +315,40 @@ class OtpCode {
     // Getters and Setters
 }
 
+@Entity
 class OtpCodeDifferenceMapping {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long otpCodeDifferenceId;
+
+    @ManyToOne
     private OtpCode otpCode;
+
+    @ManyToOne
     private Difference difference;
 
     // Getters and Setters
 }
 
+@Entity
 class Balance {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long balanceId;
+
+    @ManyToOne
     private JurisdictionObligationDifference jurisdictionObligationDifference;
+
     private Long periodId;
     private double amount;
 
     // Getters and Setters
 }
 
+@Entity
 class Difference {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long differenceId;
     private String differenceName;
     private String category;
@@ -286,46 +359,73 @@ class Difference {
 
 // Configuration Class
 
+@Configuration
 class CategorySequenceConfig {
     private List<Category> categories;
+
+    public List<Category> getCategories() {
+        return categories;
+    }
+
+    public void setCategories(List<Category> categories) {
+        this.categories = categories;
+    }
 
     public static class Category {
         private String name;
         private int sequence;
         private String customName;
 
-        // Getters and Setters
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public int getSequence() {
+            return sequence;
+        }
+
+        public void setSequence(int sequence) {
+            this.sequence = sequence;
+        }
+
+        public String getCustomName() {
+            return customName;
+        }
+
+        public void setCustomName(String customName) {
+            this.customName = customName;
+        }
     }
-
-    // Getters and Setters
 }
 
-// Repositories (Mocked for Demonstration)
+// Repositories
 
-interface JurisdictionRepository {
-    Optional<Jurisdiction> findById(Long id);
+interface JurisdictionRepository extends JpaRepository<Jurisdiction, Long> {
 }
 
-interface ObligationRepository {
-    Optional<Obligation> findById(Long id);
+interface ObligationRepository extends JpaRepository<Obligation, Long> {
 }
 
-interface JurisdictionObligationRepository {
+interface JurisdictionObligationRepository extends JpaRepository<JurisdictionObligation, Long> {
+    @Query("SELECT jo FROM JurisdictionObligation jo WHERE jo.jurisdiction = ?1 AND jo.obligation = ?2")
     JurisdictionObligation findByJurisdictionAndObligation(Jurisdiction jurisdiction, Obligation obligation);
 }
 
-interface JurisdictionObligationDifferenceRepository {
+interface JurisdictionObligationDifferenceRepository extends JpaRepository<JurisdictionObligationDifference, Long> {
     List<JurisdictionObligationDifference> findByJurisdictionObligation(JurisdictionObligation jurisdictionObligation);
 }
 
-interface OtpCodeDifferenceMappingRepository {
+interface OtpCodeRepository extends JpaRepository<OtpCode, Long> {
+}
+
+interface OtpCodeDifferenceMappingRepository extends JpaRepository<OtpCodeDifferenceMapping, Long> {
     List<OtpCodeDifferenceMapping> findByDifference(Difference difference);
 }
 
-interface BalanceRepository {
+interface BalanceRepository extends JpaRepository<Balance, Long> {
     List<Balance> findByJurisdictionObligationDifferenceAndPeriodId(JurisdictionObligationDifference jod, Long periodId);
-}
-
-interface OtpCodeRepository {
-    Optional<OtpCode> findById(Long otpId);
 }
