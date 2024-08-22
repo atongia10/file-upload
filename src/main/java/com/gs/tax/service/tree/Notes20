@@ -1,0 +1,331 @@
+package com.example.reporting;
+
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+// Main Application
+@SpringBootApplication
+public class ReportingApplication implements CommandLineRunner {
+
+    @Autowired
+    private ReportingService reportingService;
+
+    public static void main(String[] args) {
+        SpringApplication.run(ReportingApplication.class, args);
+    }
+
+    @Override
+    public void run(String... args) throws Exception {
+        List<CategoryResponse> report = reportingService.getReport(1L, 1L, 1L);
+        System.out.println(report);
+    }
+}
+
+// Reporting Service
+@Service
+class ReportingService {
+
+    @Autowired
+    private JurisdictionRepository jurisdictionRepository;
+
+    @Autowired
+    private ObligationRepository obligationRepository;
+
+    @Autowired
+    private JurisdictionObligationRepository jurisdictionObligationRepository;
+
+    @Autowired
+    private JurisdictionObligationDifferenceRepository jurisdictionObligationDifferenceRepository;
+
+    @Autowired
+    private OtpCodeDifferenceMappingRepository otpCodeDifferenceMappingRepository;
+
+    @Autowired
+    private BalanceRepository balanceRepository;
+
+    @Autowired
+    private OtpCodeRepository otpCodeRepository;
+
+    @Autowired
+    private CategorySequenceConfig categorySequenceConfig;
+
+    public List<CategoryResponse> getReport(Long periodId, Long jurisdictionId, Long obligationId) {
+        JurisdictionObligation jurisdictionObligation = getJurisdictionObligation(jurisdictionId, obligationId);
+        if (jurisdictionObligation == null) return Collections.emptyList();
+
+        Map<String, CategoryResponse> categoryResponseMap = new LinkedHashMap<>();
+        double previousCategoryTotal = 0;
+        double ptbi = 50;
+
+        for (JurisdictionObligationDifference jod : jurisdictionObligationDifferenceRepository.findByJurisdictionObligation(jurisdictionObligation)) {
+            Difference difference = jod.getDifference();
+            CategoryResponse categoryResponse = getCategoryResponse(categoryResponseMap, difference.getCategory());
+
+            TimingResponse timingResponse = getTimingResponse(categoryResponse, difference.getTiming());
+            processBalances(timingResponse, difference, jod, periodId);
+
+            categoryResponse.setTotal(categoryResponse.getTotal() + timingResponse.getTotal());
+        }
+
+        applyFinalAdjustments(categoryResponseMap, ptbi, previousCategoryTotal);
+        return new ArrayList<>(categoryResponseMap.values());
+    }
+
+    private JurisdictionObligation getJurisdictionObligation(Long jurisdictionId, Long obligationId) {
+        Jurisdiction jurisdiction = jurisdictionRepository.findById(jurisdictionId).orElse(null);
+        Obligation obligation = obligationRepository.findById(obligationId).orElse(null);
+        return jurisdictionObligationRepository.findByJurisdictionAndObligation(jurisdiction, obligation);
+    }
+
+    private CategoryResponse getCategoryResponse(Map<String, CategoryResponse> categoryResponseMap, String category) {
+        return categoryResponseMap.computeIfAbsent(category, cat -> {
+            CategorySequenceConfig.Category config = getCategoryConfig(cat);
+            return new CategoryResponse(config.getCustomName(), config.getSequence());
+        });
+    }
+
+    private CategorySequenceConfig.Category getCategoryConfig(String category) {
+        return categorySequenceConfig.getCategories().stream()
+                .filter(c -> c.getName().equalsIgnoreCase(category))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("CategorySequence not found for category: " + category));
+    }
+
+    private TimingResponse getTimingResponse(CategoryResponse categoryResponse, String timing) {
+        return categoryResponse.getTimings().stream()
+                .filter(t -> t.getTiming().equals(timing))
+                .findFirst()
+                .orElseGet(() -> {
+                    TimingResponse newTimingResponse = new TimingResponse(timing);
+                    categoryResponse.addTiming(newTimingResponse);
+                    return newTimingResponse;
+                });
+    }
+
+    private void processBalances(TimingResponse timingResponse, Difference difference, JurisdictionObligationDifference jod, Long periodId) {
+        List<Balance> balances = balanceRepository.findByJurisdictionObligationDifferenceAndPeriodId(jod, periodId);
+        for (Balance balance : balances) {
+            for (OtpCodeDifferenceMapping mapping : otpCodeDifferenceMappingRepository.findByDifference(difference)) {
+                OtpCode otpCode = otpCodeRepository.findById(mapping.getOtpCode().getOtpId())
+                        .orElseThrow(() -> new RuntimeException("OTP Code not found: " + mapping.getOtpCode().getOtpId()));
+
+                OtpCodeResponse otpCodeResponse = getOtpCodeResponse(timingResponse, otpCode.getOtpCode(), otpCode.getOtpCodeDescription());
+                otpCodeResponse.addDifference(new DifferenceResponse(difference.getDifferenceName(), balance.getAmount()));
+                otpCodeResponse.setTotal(otpCodeResponse.getTotal() + balance.getAmount());
+            }
+            timingResponse.setTotal(timingResponse.getTotal() + balance.getAmount());
+        }
+    }
+
+    private OtpCodeResponse getOtpCodeResponse(TimingResponse timingResponse, String otpCode, String otpCodeDescription) {
+        return timingResponse.getOtpCodes().stream()
+                .filter(o -> o.getOtpCode().equals(otpCode))
+                .findFirst()
+                .orElseGet(() -> {
+                    OtpCodeResponse newOtpCodeResponse = new OtpCodeResponse(otpCode, otpCodeDescription);
+                    timingResponse.addOtpCodeResponse(newOtpCodeResponse);
+                    return newOtpCodeResponse;
+                });
+    }
+
+    private void applyFinalAdjustments(Map<String, CategoryResponse> categoryResponseMap, double ptbi, double previousCategoryTotal) {
+        for (CategoryResponse categoryResponse : categoryResponseMap.values()) {
+            if (categoryResponse.getSequence() == 1) {
+                categoryResponse.setTotal(categoryResponse.getTotal() + ptbi);
+            } else {
+                categoryResponse.setTotal(categoryResponse.getTotal() + previousCategoryTotal);
+            }
+            previousCategoryTotal = categoryResponse.getTotal();
+        }
+    }
+}
+
+// DTOs
+
+class CategoryResponse {
+    private String name;
+    private int sequence;
+    private double total;
+    private List<TimingResponse> timings = new ArrayList<>();
+
+    public CategoryResponse(String name, int sequence) {
+        this.name = name;
+        this.sequence = sequence;
+        this.total = 0.0;
+    }
+
+    public void addTiming(TimingResponse timing) {
+        this.timings.add(timing);
+    }
+
+    // Getters and Setters
+}
+
+class TimingResponse {
+    private String timing;
+    private double total;
+    private List<OtpCodeResponse> otpCodes = new ArrayList<>();
+
+    public TimingResponse(String timing) {
+        this.timing = timing;
+        this.total = 0.0;
+    }
+
+    public void addOtpCodeResponse(OtpCodeResponse otpCodeResponse) {
+        this.otpCodes.add(otpCodeResponse);
+    }
+
+    // Getters and Setters
+}
+
+class OtpCodeResponse {
+    private String otpCode;
+    private String otpCodeDescription;
+    private double total;
+    private List<DifferenceResponse> differences = new ArrayList<>();
+
+    public OtpCodeResponse(String otpCode, String otpCodeDescription) {
+        this.otpCode = otpCode;
+        this.otpCodeDescription = otpCodeDescription;
+        this.total = 0.0;
+    }
+
+    public void addDifference(DifferenceResponse difference) {
+        this.differences.add(difference);
+    }
+
+    // Getters and Setters
+}
+
+class DifferenceResponse {
+    private String differenceName;
+    private double amount;
+
+    public DifferenceResponse(String differenceName, double amount) {
+        this.differenceName = differenceName;
+        this.amount = amount;
+    }
+
+    // Getters and Setters
+}
+
+// Entities (Simplified for Demonstration)
+
+class Jurisdiction {
+    private Long jurisdictionId;
+    private String jurisdictionName;
+
+    // Getters and Setters
+}
+
+class Obligation {
+    private Long obligationId;
+    private String obligationName;
+
+    // Getters and Setters
+}
+
+class JurisdictionObligation {
+    private Long jurisdictionObligationId;
+    private Jurisdiction jurisdiction;
+    private Obligation obligation;
+
+    // Getters and Setters
+}
+
+class JurisdictionObligationDifference {
+    private Long jurisdictionObligationDifferenceId;
+    private JurisdictionObligation jurisdictionObligation;
+    private Difference difference;
+
+    // Getters and Setters
+}
+
+class OtpCode {
+    private Long otpId;
+    private String otpCode;
+    private String otpCodeDescription;
+
+    // Getters and Setters
+}
+
+class OtpCodeDifferenceMapping {
+    private Long otpCodeDifferenceId;
+    private OtpCode otpCode;
+    private Difference difference;
+
+    // Getters and Setters
+}
+
+class Balance {
+    private Long balanceId;
+    private JurisdictionObligationDifference jurisdictionObligationDifference;
+    private Long periodId;
+    private double amount;
+
+    // Getters and Setters
+}
+
+class Difference {
+    private Long differenceId;
+    private String differenceName;
+    private String category;
+    private String timing;
+
+    // Getters and Setters
+}
+
+// Configuration Class
+
+class CategorySequenceConfig {
+    private List<Category> categories;
+
+    public static class Category {
+        private String name;
+        private int sequence;
+        private String customName;
+
+        // Getters and Setters
+    }
+
+    // Getters and Setters
+}
+
+// Repositories (Mocked for Demonstration)
+
+interface JurisdictionRepository {
+    Optional<Jurisdiction> findById(Long id);
+}
+
+interface ObligationRepository {
+    Optional<Obligation> findById(Long id);
+}
+
+interface JurisdictionObligationRepository {
+    JurisdictionObligation findByJurisdictionAndObligation(Jurisdiction jurisdiction, Obligation obligation);
+}
+
+interface JurisdictionObligationDifferenceRepository {
+    List<JurisdictionObligationDifference> findByJurisdictionObligation(JurisdictionObligation jurisdictionObligation);
+}
+
+interface OtpCodeDifferenceMappingRepository {
+    List<OtpCodeDifferenceMapping> findByDifference(Difference difference);
+}
+
+interface BalanceRepository {
+    List<Balance> findByJurisdictionObligationDifferenceAndPeriodId(JurisdictionObligationDifference jod, Long periodId);
+}
+
+interface OtpCodeRepository {
+    Optional<OtpCode> findById(Long otpId);
+}
