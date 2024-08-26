@@ -1,0 +1,883 @@
+package com.gs.tax.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@SpringBootApplication
+@EnableConfigurationProperties(DemoApplication.ConfigProperties.class)
+public class DemoApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(DemoApplication.class, args);
+	}
+
+	@ConfigurationProperties
+	static class ConfigProperties {
+		private List<CategoryConfig> categories = new ArrayList<>();
+		private List<OTPCatalog> otpCatalog = new ArrayList<>();
+		private List<OTPCodeDifferenceMapping> otpCodeDifferenceMapping = new ArrayList<>();
+		private List<Difference> differences = new ArrayList<>();
+		private List<Jurisdiction> jurisdictions = new ArrayList<>();
+		private List<Obligation> obligations = new ArrayList<>();
+		private List<JurisdictionObligation> jurisdictionObligations = new ArrayList<>();
+		private List<Period> periods = new ArrayList<>();
+		private List<JurisdictionObligationDifference> jurisdictionObligationDifferences = new ArrayList<>();
+		private List<DifferenceBalanceStaging> differenceBalanceStaging = new ArrayList<>();
+		private double ptbi = 8;  // PTBI value
+
+		// Getters and Setters for all properties
+		public List<CategoryConfig> getCategories() {
+			return categories;
+		}
+
+		public void setCategories(List<CategoryConfig> categories) {
+			this.categories = categories;
+		}
+
+		public List<OTPCatalog> getOtpCatalog() {
+			return otpCatalog;
+		}
+
+		public void setOtpCatalog(List<OTPCatalog> otpCatalog) {
+			this.otpCatalog = otpCatalog;
+		}
+
+		public List<OTPCodeDifferenceMapping> getOtpCodeDifferenceMapping() {
+			return otpCodeDifferenceMapping;
+		}
+
+		public void setOtpCodeDifferenceMapping(List<OTPCodeDifferenceMapping> otpCodeDifferenceMapping) {
+			this.otpCodeDifferenceMapping = otpCodeDifferenceMapping;
+		}
+
+		public List<Difference> getDifferences() {
+			return differences;
+		}
+
+		public void setDifferences(List<Difference> differences) {
+			this.differences = differences;
+		}
+
+		public List<Jurisdiction> getJurisdictions() {
+			return jurisdictions;
+		}
+
+		public void setJurisdictions(List<Jurisdiction> jurisdictions) {
+			this.jurisdictions = jurisdictions;
+		}
+
+		public List<Obligation> getObligations() {
+			return obligations;
+		}
+
+		public void setObligations(List<Obligation> obligations) {
+			this.obligations = obligations;
+		}
+
+		public List<JurisdictionObligation> getJurisdictionObligations() {
+			return jurisdictionObligations;
+		}
+
+		public void setJurisdictionObligations(List<JurisdictionObligation> jurisdictionObligations) {
+			this.jurisdictionObligations = jurisdictionObligations;
+		}
+
+		public List<Period> getPeriods() {
+			return periods;
+		}
+
+		public void setPeriods(List<Period> periods) {
+			this.periods = periods;
+		}
+
+		public List<JurisdictionObligationDifference> getJurisdictionObligationDifferences() {
+			return jurisdictionObligationDifferences;
+		}
+
+		public void setJurisdictionObligationDifferences(List<JurisdictionObligationDifference> jurisdictionObligationDifferences) {
+			this.jurisdictionObligationDifferences = jurisdictionObligationDifferences;
+		}
+
+		public List<DifferenceBalanceStaging> getDifferenceBalanceStaging() {
+			return differenceBalanceStaging;
+		}
+
+		public void setDifferenceBalanceStaging(List<DifferenceBalanceStaging> differenceBalanceStaging) {
+			this.differenceBalanceStaging = differenceBalanceStaging;
+		}
+
+		public double getPtbi() {
+			return ptbi;
+		}
+
+		public void setPtbi(double ptbi) {
+			this.ptbi = ptbi;
+		}
+
+		// Nested classes for each entity
+		public static class CategoryConfig {
+			private String name;
+			private String description;
+
+			public String getName() {
+				return name;
+			}
+
+			public void setName(String name) {
+				this.name = name;
+			}
+
+			public String getDescription() {
+				return description;
+			}
+
+			public void setDescription(String description) {
+				this.description = description;
+			}
+		}
+
+		public static class OTPCatalog {
+			private String otpCode;
+			private String otpDescription;
+
+			public String getOtpCode() {
+				return otpCode;
+			}
+
+			public void setOtpCode(String otpCode) {
+				this.otpCode = otpCode;
+			}
+
+			public String getOtpDescription() {
+				return otpDescription;
+			}
+
+			public void setOtpDescription(String otpDescription) {
+				this.otpDescription = otpDescription;
+			}
+		}
+
+		public static class OTPCodeDifferenceMapping {
+			private String otpCode;
+			private Long differenceId;
+
+			public String getOtpCode() {
+				return otpCode;
+			}
+
+			public void setOtpCode(String otpCode) {
+				this.otpCode = otpCode;
+			}
+
+			public Long getDifferenceId() {
+				return differenceId;
+			}
+
+			public void setDifferenceId(Long differenceId) {
+				this.differenceId = differenceId;
+			}
+		}
+
+		public static class Difference {
+			private Long differenceId;
+			private String differenceName;
+			private String differenceCategory;
+			private String differenceTiming;
+
+			public Long getDifferenceId() {
+				return differenceId;
+			}
+
+			public void setDifferenceId(Long differenceId) {
+				this.differenceId = differenceId;
+			}
+
+			public String getDifferenceName() {
+				return differenceName;
+			}
+
+			public void setDifferenceName(String differenceName) {
+				this.differenceName = differenceName;
+			}
+
+			public String getDifferenceCategory() {
+				return differenceCategory;
+			}
+
+			public void setDifferenceCategory(String differenceCategory) {
+				this.differenceCategory = differenceCategory;
+			}
+
+			public String getDifferenceTiming() {
+				return differenceTiming;
+			}
+
+			public void setDifferenceTiming(String differenceTiming) {
+				this.differenceTiming = differenceTiming;
+			}
+		}
+
+		public static class Jurisdiction {
+			private Long jurisdictionId;
+			private String jurisdictionName;
+
+			public Long getJurisdictionId() {
+				return jurisdictionId;
+			}
+
+			public void setJurisdictionId(Long jurisdictionId) {
+				this.jurisdictionId = jurisdictionId;
+			}
+
+			public String getJurisdictionName() {
+				return jurisdictionName;
+			}
+
+			public void setJurisdictionName(String jurisdictionName) {
+				this.jurisdictionName = jurisdictionName;
+			}
+		}
+
+		public static class Obligation {
+			private Long obligationId;
+			private String obligationName;
+
+			public Long getObligationId() {
+				return obligationId;
+			}
+
+			public void setObligationId(Long obligationId) {
+				this.obligationId = obligationId;
+			}
+
+			public String getObligationName() {
+				return obligationName;
+			}
+
+			public void setObligationName(String obligationName) {
+				this.obligationName = obligationName;
+			}
+		}
+
+		public static class JurisdictionObligation {
+			private Long jurisdictionObligationId;
+			private Long jurisdictionId;
+			private Long obligationId;
+
+			public Long getJurisdictionObligationId() {
+				return jurisdictionObligationId;
+			}
+
+			public void setJurisdictionObligationId(Long jurisdictionObligationId) {
+				this.jurisdictionObligationId = jurisdictionObligationId;
+			}
+
+			public Long getJurisdictionId() {
+				return jurisdictionId;
+			}
+
+			public void setJurisdictionId(Long jurisdictionId) {
+				this.jurisdictionId = jurisdictionId;
+			}
+
+			public Long getObligationId() {
+				return obligationId;
+			}
+
+			public void setObligationId(Long obligationId) {
+				this.obligationId = obligationId;
+			}
+		}
+
+		public static class Period {
+			private Long periodId;
+			private String periodName;
+			private Long jurisdictionObligationId;
+
+			public Long getPeriodId() {
+				return periodId;
+			}
+
+			public void setPeriodId(Long periodId) {
+				this.periodId = periodId;
+			}
+
+			public String getPeriodName() {
+				return periodName;
+			}
+
+			public void setPeriodName(String periodName) {
+				this.periodName = periodName;
+			}
+
+			public Long getJurisdictionObligationId() {
+				return jurisdictionObligationId;
+			}
+
+			public void setJurisdictionObligationId(Long jurisdictionObligationId) {
+				this.jurisdictionObligationId = jurisdictionObligationId;
+			}
+		}
+
+		public static class JurisdictionObligationDifference {
+			private Long jurisdictionObligationDifferenceId;
+			private Long jurisdictionObligationId;
+			private Long differenceId;
+
+			public Long getJurisdictionObligationDifferenceId() {
+				return jurisdictionObligationDifferenceId;
+			}
+
+			public void setJurisdictionObligationDifferenceId(Long jurisdictionObligationDifferenceId) {
+				this.jurisdictionObligationDifferenceId = jurisdictionObligationDifferenceId;
+			}
+
+			public Long getJurisdictionObligationId() {
+				return jurisdictionObligationId;
+			}
+
+			public void setJurisdictionObligationId(Long jurisdictionObligationId) {
+				this.jurisdictionObligationId = jurisdictionObligationId;
+			}
+
+			public Long getDifferenceId() {
+				return differenceId;
+			}
+
+			public void setDifferenceId(Long differenceId) {
+				this.differenceId = differenceId;
+			}
+		}
+
+		public static class DifferenceBalanceStaging {
+			private Long stagingId;
+			private Long jurisdictionObligationDifferenceId;
+			private String entityId;
+			private Long periodId;
+			private double amount;
+
+			public Long getStagingId() {
+				return stagingId;
+			}
+
+			public void setStagingId(Long stagingId) {
+				this.stagingId = stagingId;
+			}
+
+			public Long getJurisdictionObligationDifferenceId() {
+				return jurisdictionObligationDifferenceId;
+			}
+
+			public void setJurisdictionObligationDifferenceId(Long jurisdictionObligationDifferenceId) {
+				this.jurisdictionObligationDifferenceId = jurisdictionObligationDifferenceId;
+			}
+
+			public String getEntityId() {
+				return entityId;
+			}
+
+			public void setEntityId(String entityId) {
+				this.entityId = entityId;
+			}
+
+			public Long getPeriodId() {
+				return periodId;
+			}
+
+			public void setPeriodId(Long periodId) {
+				this.periodId = periodId;
+			}
+
+			public double getAmount() {
+				return amount;
+			}
+
+			public void setAmount(double amount) {
+				this.amount = amount;
+			}
+		}
+	}
+
+	@RestController
+	@RequestMapping("/api")
+	public static class CategoryController {
+
+		private final ConfigProperties config;
+
+		public CategoryController(ConfigProperties config) {
+			this.config = config;
+		}
+
+		@GetMapping("/categories")
+		public List<CategoryDTO> getCategories(
+				@RequestParam String jurisdictionName,
+				@RequestParam String obligationName,
+				@RequestParam String periodName,
+				@RequestParam String entityId) {
+
+			// Step 1: Look up jurisdictionObligationId
+			Long jurisdictionId = config.getJurisdictions().stream()
+					.filter(j -> j.getJurisdictionName().equalsIgnoreCase(jurisdictionName))
+					.map(ConfigProperties.Jurisdiction::getJurisdictionId)
+					.findFirst()
+					.orElse(null);
+			if (jurisdictionId == null) {
+				return Collections.emptyList();
+			}
+
+			Long obligationId = config.getObligations().stream()
+					.filter(o -> o.getObligationName().equalsIgnoreCase(obligationName))
+					.map(ConfigProperties.Obligation::getObligationId)
+					.findFirst()
+					.orElse(null);
+			if (obligationId == null) {
+				return Collections.emptyList();
+			}
+
+			Long jurisdictionObligationId = config.getJurisdictionObligations().stream()
+					.filter(jo -> jo.getJurisdictionId().equals(jurisdictionId) && jo.getObligationId().equals(obligationId))
+					.map(ConfigProperties.JurisdictionObligation::getJurisdictionObligationId)
+					.findFirst()
+					.orElse(null);
+			if (jurisdictionObligationId == null) {
+				return Collections.emptyList();
+			}
+
+			// Step 2: Look up periodId
+			Long periodId = config.getPeriods().stream()
+					.filter(p -> p.getJurisdictionObligationId().equals(jurisdictionObligationId) && p.getPeriodName().equalsIgnoreCase(periodName))
+					.map(ConfigProperties.Period::getPeriodId)
+					.findFirst()
+					.orElse(null);
+			if (periodId == null) {
+				return Collections.emptyList();
+			}
+
+			// Step 3: Get the relevant differences and amounts from DifferenceBalanceStaging
+			Map<Long, Double> differenceAmounts = config.getJurisdictionObligationDifferences().stream()
+					.filter(jod -> jod.getJurisdictionObligationId().equals(jurisdictionObligationId))
+					.flatMap(jod -> config.getDifferenceBalanceStaging().stream()
+							.filter(dbs -> dbs.getJurisdictionObligationDifferenceId().equals(jod.getJurisdictionObligationDifferenceId())
+									&& dbs.getEntityId().equals(entityId)
+									&& dbs.getPeriodId().equals(periodId))
+							.map(dbs -> Map.entry(jod.getDifferenceId(), dbs.getAmount())))
+					.collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+			if (differenceAmounts.isEmpty()) {
+				return Collections.emptyList();
+			}
+
+			Map<String, CategoryDTO> categoryMap = new LinkedHashMap<>(); // Using LinkedHashMap to maintain order
+
+			// Initialize empty CategoryDTOs for all configured categories in the specified order
+			for (ConfigProperties.CategoryConfig categoryConfig : config.getCategories()) {
+				CategoryDTO categoryDTO = new CategoryDTO();
+				categoryDTO.setCategoryName(categoryConfig.getName());
+				categoryDTO.setCategoryDescription(categoryConfig.getDescription());
+				categoryDTO.setTotalSumCategory(0.0);
+				categoryDTO.setTimings(new ArrayList<>());
+				categoryMap.put(categoryConfig.getName(), categoryDTO);
+			}
+
+			// Process each OTP code
+			for (ConfigProperties.OTPCatalog otpCatalog : config.getOtpCatalog()) {
+				List<ConfigProperties.OTPCodeDifferenceMapping> mappings = config.getOtpCodeDifferenceMapping().stream()
+						.filter(mapping -> mapping.getOtpCode().equals(otpCatalog.getOtpCode()))
+						.collect(Collectors.toList());
+
+				List<ConfigProperties.Difference> differences = config.getDifferences().stream()
+						.filter(difference -> mappings.stream().anyMatch(mapping -> mapping.getDifferenceId().equals(difference.getDifferenceId())))
+						.collect(Collectors.toList());
+
+				// Group differences by category and timing
+				Map<String, Map<String, List<ConfigProperties.Difference>>> groupedByCategoryAndTiming = differences.stream()
+						.collect(Collectors.groupingBy(ConfigProperties.Difference::getDifferenceCategory,
+								Collectors.groupingBy(ConfigProperties.Difference::getDifferenceTiming)));
+
+				// Process each category
+				for (Map.Entry<String, Map<String, List<ConfigProperties.Difference>>> categoryEntry : groupedByCategoryAndTiming.entrySet()) {
+					String categoryName = categoryEntry.getKey();
+					if (!categoryMap.containsKey(categoryName)) {
+						continue;  // Skip categories not in the configuration
+					}
+
+					Map<String, List<ConfigProperties.Difference>> timingMap = categoryEntry.getValue();
+					CategoryDTO categoryDTO = categoryMap.get(categoryName);
+
+					// Process each timing within the category
+					for (Map.Entry<String, List<ConfigProperties.Difference>> timingEntry : timingMap.entrySet()) {
+						String timingName = timingEntry.getKey();
+						List<ConfigProperties.Difference> differencesByTiming = timingEntry.getValue();
+
+						double totalSumTiming = 0;
+						TimingDTO timingDTO = new TimingDTO();
+						timingDTO.setTimingName(timingName);
+						timingDTO.setTotalSumOTPCode(0.0);
+
+						List<OTPCodeDTO> otpCodeDTOs = new ArrayList<>();
+
+						for (ConfigProperties.OTPCodeDifferenceMapping mapping : mappings) {
+							OTPCodeDTO otpCodeDTO = new OTPCodeDTO();
+							otpCodeDTO.setOtpCodeName(otpCatalog.getOtpCode());
+							otpCodeDTO.setOtpCodeDescription(otpCatalog.getOtpDescription());
+							otpCodeDTO.setTotalSumDifferences(0.0);
+
+							List<DifferencesDTO> differencesDTOs = new ArrayList<>();
+							for (ConfigProperties.Difference difference : differencesByTiming) {
+								if (mapping.getDifferenceId().equals(difference.getDifferenceId())) {
+									double amount = differenceAmounts.getOrDefault(difference.getDifferenceId(), 0.0);
+									DifferencesDTO differencesDTO = new DifferencesDTO();
+									differencesDTO.setDifferenceName(difference.getDifferenceName());
+									differencesDTO.setDifferenceAmount(amount);
+									differencesDTOs.add(differencesDTO);
+
+									// Sum up for OTPCode and Timing
+									otpCodeDTO.setTotalSumDifferences(otpCodeDTO.getTotalSumDifferences() + amount);
+									totalSumTiming += amount;
+								}
+							}
+							otpCodeDTO.setDifferences(differencesDTOs);
+							if (!differencesDTOs.isEmpty()) {
+								otpCodeDTOs.add(otpCodeDTO);
+							}
+						}
+
+						timingDTO.setOtpCodes(otpCodeDTOs);
+						timingDTO.setTotalSumOTPCode(totalSumTiming);
+						if (!otpCodeDTOs.isEmpty()) {
+							categoryDTO.getTimings().add(timingDTO);
+						}
+						categoryDTO.setTotalSumCategory(categoryDTO.getTotalSumCategory() + totalSumTiming);
+					}
+				}
+			}
+
+			// Adjust totalSumCategory for each category
+			double previousSum = 0;
+			boolean isFirstCategory = true;
+			for (CategoryDTO categoryDTO : categoryMap.values()) {
+				if (isFirstCategory) {
+					// Add PTBI to the first category's totalSumCategory
+					categoryDTO.setTotalSumCategory(categoryDTO.getTotalSumCategory() + config.getPtbi());
+					previousSum = categoryDTO.getTotalSumCategory();
+					isFirstCategory = false;
+				} else {
+					if (categoryDTO.getTotalSumCategory() > 0) {
+						// Add the previous category's totalSumCategory to the current one only if it's > 0
+						categoryDTO.setTotalSumCategory(categoryDTO.getTotalSumCategory() + previousSum);
+						previousSum = categoryDTO.getTotalSumCategory();
+					} else {
+						// Do not update previousSum if the current category's total is 0
+						previousSum = 0;
+					}
+				}
+			}
+
+			// Return the values in the order specified in the config file
+			return new ArrayList<>(categoryMap.values());
+		}
+	}
+
+
+
+
+	// DTO classes as inner static classes
+
+	public static class CategoryDTO {
+		private String categoryName;
+		private String categoryDescription;
+		private double totalSumCategory;
+		private List<TimingDTO> timings = new ArrayList<>();
+
+		public String getCategoryName() {
+			return categoryName;
+		}
+
+		public void setCategoryName(String categoryName) {
+			this.categoryName = categoryName;
+		}
+
+		public String getCategoryDescription() {
+			return categoryDescription;
+		}
+
+		public void setCategoryDescription(String categoryDescription) {
+			this.categoryDescription = categoryDescription;
+		}
+
+		public double getTotalSumCategory() {
+			return totalSumCategory;
+		}
+
+		public void setTotalSumCategory(double totalSumCategory) {
+			this.totalSumCategory = totalSumCategory;
+		}
+
+		public List<TimingDTO> getTimings() {
+			return timings;
+		}
+
+		public void setTimings(List<TimingDTO> timings) {
+			this.timings = timings;
+		}
+
+		@Override
+		public String toString() {
+			return "CategoryDTO{" +
+					"categoryName='" + categoryName + '\'' +
+					", categoryDescription='" + categoryDescription + '\'' +
+					", totalSumCategory=" + totalSumCategory +
+					", timings=" + timings +
+					'}';
+		}
+	}
+
+	public static class TimingDTO {
+		private String timingName;
+		private double totalSumOTPCode;
+		private List<OTPCodeDTO> otpCodes = new ArrayList<>();
+
+		public String getTimingName() {
+			return timingName;
+		}
+
+		public void setTimingName(String timingName) {
+			this.timingName = timingName;
+		}
+
+		public double getTotalSumOTPCode() {
+			return totalSumOTPCode;
+		}
+
+		public void setTotalSumOTPCode(double totalSumOTPCode) {
+			this.totalSumOTPCode = totalSumOTPCode;
+		}
+
+		public List<OTPCodeDTO> getOtpCodes() {
+			return otpCodes;
+		}
+
+		public void setOtpCodes(List<OTPCodeDTO> otpCodes) {
+			this.otpCodes = otpCodes;
+		}
+
+		@Override
+		public String toString() {
+			return "TimingDTO{" +
+					"timingName='" + timingName + '\'' +
+					", totalSumOTPCode=" + totalSumOTPCode +
+					", otpCodes=" + otpCodes +
+					'}';
+		}
+	}
+
+	public static class OTPCodeDTO {
+		private String otpCodeName;
+		private String otpCodeDescription;
+		private double totalSumDifferences;
+		private List<DifferencesDTO> differences = new ArrayList<>();
+
+		public String getOtpCodeName() {
+			return otpCodeName;
+		}
+
+		public void setOtpCodeName(String otpCodeName) {
+			this.otpCodeName = otpCodeName;
+		}
+
+		public String getOtpCodeDescription() {
+			return otpCodeDescription;
+		}
+
+		public void setOtpCodeDescription(String otpCodeDescription) {
+			this.otpCodeDescription = otpCodeDescription;
+		}
+
+		public double getTotalSumDifferences() {
+			return totalSumDifferences;
+		}
+
+		public void setTotalSumDifferences(double totalSumDifferences) {
+			this.totalSumDifferences = totalSumDifferences;
+		}
+
+		public List<DifferencesDTO> getDifferences() {
+			return differences;
+		}
+
+		public void setDifferences(List<DifferencesDTO> differences) {
+			this.differences = differences;
+		}
+
+		@Override
+		public String toString() {
+			return "OTPCodeDTO{" +
+					"otpCodeName='" + otpCodeName + '\'' +
+					", otpCodeDescription='" + otpCodeDescription + '\'' +
+					", totalSumDifferences=" + totalSumDifferences +
+					", differences=" + differences +
+					'}';
+		}
+	}
+
+	public static class DifferencesDTO {
+		private String differenceName;
+		private double differenceAmount;
+
+		public String getDifferenceName() {
+			return differenceName;
+		}
+
+		public void setDifferenceName(String differenceName) {
+			this.differenceName = differenceName;
+		}
+
+		public double getDifferenceAmount() {
+			return differenceAmount;
+		}
+
+		public void setDifferenceAmount(double differenceAmount) {
+			this.differenceAmount = differenceAmount;
+		}
+
+		@Override
+		public String toString() {
+			return "DifferencesDTO{" +
+					"differenceName='" + differenceName + '\'' +
+					", differenceAmount=" + differenceAmount +
+					'}';
+		}
+	}
+}
+
+
+/* *********** */
+categories:
+  - name: PTBI
+    description: "Pre Tax Book Income"
+  - name: Gaap to Stat
+    description: "Description for Gaap to Stat"
+  - name: Stat to Tax
+    description: "Description for Stat to Tax"
+  - name: NOL
+    description: "Description for NOL"
+  - name: SomethingDifferent
+    description: "Description for SomethingDifferent"
+
+otpCatalog:
+  - otpCode: PVG01
+    otpDescription: "This is PVG01 Description"
+  - otpCode: PVG02
+    otpDescription: "This is PVG02 Description"
+  - otpCode: PVG03
+    otpDescription: "This is PVG03 Description"
+
+jurisdictions:
+  - jurisdictionId: 1
+    jurisdictionName: Singapore
+  - jurisdictionId: 2
+    jurisdictionName: India
+
+obligations:
+  - obligationId: 1
+    obligationName: Provision
+  - obligationId: 2
+    obligationName: Compliance
+
+jurisdictionObligations:
+  - jurisdictionObligationId: 1
+    jurisdictionId: 1
+    obligationId: 1
+
+periods:
+  - periodId: 1
+    periodName: 2024-Q1
+    jurisdictionObligationId: 1
+
+differences:
+  - differenceId: 1
+    differenceName: DifferenceOne
+    differenceCategory: Gaap to Stat
+    differenceTiming: Permanent
+  - differenceId: 2
+    differenceName: DifferenceTwo
+    differenceCategory: Gaap to Stat
+    differenceTiming: Temporary
+  - differenceId: 3
+    differenceName: DifferenceThree
+    differenceCategory: Stat to Tax
+    differenceTiming: Permanent
+  - differenceId: 4
+    differenceName: DifferenceFour
+    differenceCategory: Stat to Tax
+    differenceTiming: Temporary
+  - differenceId: 5
+    differenceName: DifferenceFive
+    differenceCategory: NOL
+    differenceTiming: Temporary
+
+otpCodeDifferenceMapping:
+  - otpCode: PVG01
+    differenceId: 1
+  - otpCode: PVG01
+    differenceId: 2
+  - otpCode: PVG01
+    differenceId: 3
+  - otpCode: PVG02
+    differenceId: 4
+  - otpCode: PVG03
+    differenceId: 5
+
+jurisdictionObligationDifferences:
+  - jurisdictionObligationDifferenceId: 1
+    jurisdictionObligationId: 1
+    differenceId: 1
+  - jurisdictionObligationDifferenceId: 2
+    jurisdictionObligationId: 1
+    differenceId: 2
+  - jurisdictionObligationDifferenceId: 3
+    jurisdictionObligationId: 1
+    differenceId: 3
+  - jurisdictionObligationDifferenceId: 4
+    jurisdictionObligationId: 1
+    differenceId: 4
+  - jurisdictionObligationDifferenceId: 5
+    jurisdictionObligationId: 1
+    differenceId: 5
+
+differenceBalanceStaging:
+  - stagingId: 1
+    jurisdictionObligationDifferenceId: 1
+    entityId: 0802
+    periodId: 1
+    amount: 10.0
+  - stagingId: 2
+    jurisdictionObligationDifferenceId: 2
+    entityId: 0802
+    periodId: 1
+    amount: 20.0
+  - stagingId: 3
+    jurisdictionObligationDifferenceId: 3
+    entityId: 0802
+    periodId: 1
+    amount: 30.0
+  - stagingId: 4
+    jurisdictionObligationDifferenceId: 4
+    entityId: 0802
+    periodId: 1
+    amount: 40.0
+  - stagingId: 5
+    jurisdictionObligationDifferenceId: 5
+    entityId: 0802
+    periodId: 1
+    amount: 50.0
+
