@@ -1,0 +1,697 @@
+package com.example;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@SpringBootApplication
+public class DemoApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+
+    @Bean
+    public ExternalApiService externalApiService(RestTemplate restTemplate) {
+        return new ExternalApiService(restTemplate);
+    }
+
+    @Bean
+    public List<CategoryDTO> categories() {
+        return Arrays.asList(
+                new CategoryDTO("Gaap to Stat", "Description for Gaap to Stat"),
+                new CategoryDTO("Stat to Tax", "Description for Stat to Tax"),
+                new CategoryDTO("NOL", "Description for NOL")
+        );
+    }
+
+    @RestController
+    @RequestMapping("/api")
+    public static class CategoryController {
+
+        private final List<CategoryDTO> categories;
+        private final ExternalApiService externalApiService;
+        private final double ptbi = 8; // PTBI value
+
+        public CategoryController(List<CategoryDTO> categories, ExternalApiService externalApiService) {
+            this.categories = categories;
+            this.externalApiService = externalApiService;
+        }
+
+        @GetMapping("/categories")
+        public List<CategoryDTO> getCategories(
+                @RequestParam String jurisdictionName,
+                @RequestParam String obligationName,
+                @RequestParam String periodName,
+                @RequestParam String entityId) {
+
+            // Fetch data from external APIs
+            List<OTPCatalog> otpCatalog = externalApiService.getOtpCatalog();
+            List<Jurisdiction> jurisdictions = externalApiService.getJurisdictions();
+            List<Obligation> obligations = externalApiService.getObligations();
+            List<JurisdictionObligation> jurisdictionObligations = externalApiService.getJurisdictionObligations();
+            List<Period> periods = externalApiService.getPeriods();
+            List<Difference> differences = externalApiService.getDifferences();
+            List<OTPCodeDifferenceMapping> otpCodeDifferenceMappings = externalApiService.getOtpCodeDifferenceMappings();
+            List<JurisdictionObligationDifference> jurisdictionObligationDifferences = externalApiService.getJurisdictionObligationDifferences();
+            List<DifferenceBalanceStaging> differenceBalanceStaging = externalApiService.getDifferenceBalanceStaging();
+
+            // Look up jurisdictionObligationId
+            Long jurisdictionId = jurisdictions.stream()
+                    .filter(j -> j.getJurisdictionName().equalsIgnoreCase(jurisdictionName))
+                    .map(Jurisdiction::getJurisdictionId)
+                    .findFirst()
+                    .orElse(null);
+            if (jurisdictionId == null) {
+                return Collections.emptyList();
+            }
+
+            Long obligationId = obligations.stream()
+                    .filter(o -> o.getObligationName().equalsIgnoreCase(obligationName))
+                    .map(Obligation::getObligationId)
+                    .findFirst()
+                    .orElse(null);
+            if (obligationId == null) {
+                return Collections.emptyList();
+            }
+
+            Long jurisdictionObligationId = jurisdictionObligations.stream()
+                    .filter(jo -> jo.getJurisdictionId().equals(jurisdictionId) && jo.getObligationId().equals(obligationId))
+                    .map(JurisdictionObligation::getJurisdictionObligationId)
+                    .findFirst()
+                    .orElse(null);
+            if (jurisdictionObligationId == null) {
+                return Collections.emptyList();
+            }
+
+            // Look up periodId
+            Long periodId = periods.stream()
+                    .filter(p -> p.getJurisdictionObligationId().equals(jurisdictionObligationId) && p.getPeriodName().equalsIgnoreCase(periodName))
+                    .map(Period::getPeriodId)
+                    .findFirst()
+                    .orElse(null);
+            if (periodId == null) {
+                return Collections.emptyList();
+            }
+
+            // Get the relevant differences and amounts from DifferenceBalanceStaging
+            Map<Long, Double> differenceAmounts = jurisdictionObligationDifferences.stream()
+                    .filter(jod -> jod.getJurisdictionObligationId().equals(jurisdictionObligationId))
+                    .flatMap(jod -> differenceBalanceStaging.stream()
+                            .filter(dbs -> dbs.getJurisdictionObligationDifferenceId().equals(jod.getJurisdictionObligationDifferenceId())
+                                    && dbs.getEntityId().equals(entityId)
+                                    && dbs.getPeriodId().equals(periodId))
+                            .map(dbs -> Map.entry(jod.getDifferenceId(), dbs.getAmount())))
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+
+            if (differenceAmounts.isEmpty()) {
+                return Collections.emptyList();
+            }
+
+            Map<String, CategoryDTO> categoryMap = new LinkedHashMap<>(); // Using LinkedHashMap to maintain order
+
+            // Initialize empty CategoryDTOs for all configured categories in the specified order
+            for (CategoryDTO category : categories) {
+                category.setTotalSumCategory(0.0);
+                category.setTimings(new ArrayList<>());
+                categoryMap.put(category.getCategoryName(), category);
+            }
+
+            // Process each OTP code
+            for (OTPCatalog otp : otpCatalog) {
+                List<OTPCodeDifferenceMapping> mappings = otpCodeDifferenceMappings.stream()
+                        .filter(mapping -> mapping.getOtpCode().equals(otp.getOtpCode()))
+                        .collect(Collectors.toList());
+
+                List<Difference> relevantDifferences = differences.stream()
+                        .filter(difference -> mappings.stream().anyMatch(mapping -> mapping.getDifferenceId().equals(difference.getDifferenceId())))
+                        .collect(Collectors.toList());
+
+                // Group differences by category and timing
+                Map<String, Map<String, List<Difference>>> groupedByCategoryAndTiming = relevantDifferences.stream()
+                        .collect(Collectors.groupingBy(Difference::getDifferenceCategory,
+                                Collectors.groupingBy(Difference::getDifferenceTiming)));
+
+                // Process each category
+                for (Map.Entry<String, Map<String, List<Difference>>> categoryEntry : groupedByCategoryAndTiming.entrySet()) {
+                    String categoryName = categoryEntry.getKey();
+                    if (!categoryMap.containsKey(categoryName)) {
+                        continue;  // Skip categories not in the configuration
+                    }
+
+                    Map<String, List<Difference>> timingMap = categoryEntry.getValue();
+                    CategoryDTO categoryDTO = categoryMap.get(categoryName);
+
+                    // Process each timing within the category
+                    for (Map.Entry<String, List<Difference>> timingEntry : timingMap.entrySet()) {
+                        String timingName = timingEntry.getKey();
+                        List<Difference> differencesByTiming = timingEntry.getValue();
+
+                        double totalSumTiming = 0;
+                        TimingDTO timingDTO = new TimingDTO();
+                        timingDTO.setTimingName(timingName);
+                        timingDTO.setTotalSumOTPCode(0.0);
+
+                        List<OTPCodeDTO> otpCodeDTOs = new ArrayList<>();
+
+                        for (OTPCodeDifferenceMapping mapping : mappings) {
+                            OTPCodeDTO otpCodeDTO = new OTPCodeDTO();
+                            otpCodeDTO.setOtpCodeName(otp.getOtpCode());
+                            otpCodeDTO.setOtpCodeDescription(otp.getOtpDescription());
+                            otpCodeDTO.setTotalSumDifferences(0.0);
+
+                            List<DifferencesDTO> differencesDTOs = new ArrayList<>();
+                            for (Difference difference : differencesByTiming) {
+                                if (mapping.getDifferenceId().equals(difference.getDifferenceId())) {
+                                    double amount = differenceAmounts.getOrDefault(difference.getDifferenceId(), 0.0);
+                                    DifferencesDTO differencesDTO = new DifferencesDTO();
+                                    differencesDTO.setDifferenceName(difference.getDifferenceName());
+                                    differencesDTO.setDifferenceAmount(amount);
+                                    differencesDTOs.add(differencesDTO);
+
+                                    // Sum up for OTPCode and Timing
+                                    otpCodeDTO.setTotalSumDifferences(otpCodeDTO.getTotalSumDifferences() + amount);
+                                    totalSumTiming += amount;
+                                }
+                            }
+                            otpCodeDTO.setDifferences(differencesDTOs);
+                            if (!differencesDTOs.isEmpty()) {
+                                otpCodeDTOs.add(otpCodeDTO);
+                            }
+                        }
+
+                        timingDTO.setOtpCodes(otpCodeDTOs);
+                        timingDTO.setTotalSumOTPCode(totalSumTiming);
+                        if (!otpCodeDTOs.isEmpty()) {
+                            categoryDTO.getTimings().add(timingDTO);
+                        }
+                        categoryDTO.setTotalSumCategory(categoryDTO.getTotalSumCategory() + totalSumTiming);
+                    }
+                }
+            }
+
+            // Adjust totalSumCategory for each category
+            double previousSum = 0;
+            boolean isFirstCategory = true;
+            for (CategoryDTO categoryDTO : categoryMap.values()) {
+                if (isFirstCategory) {
+                    // Add PTBI to the first category's totalSumCategory
+                    categoryDTO.setTotalSumCategory(categoryDTO.getTotalSumCategory() + ptbi);
+                    previousSum = categoryDTO.getTotalSumCategory();
+                    isFirstCategory = false;
+                } else {
+                    if (categoryDTO.getTotalSumCategory() > 0) {
+                        // Add the previous category's totalSumCategory to the current one only if it's > 0
+                        categoryDTO.setTotalSumCategory(categoryDTO.getTotalSumCategory() + previousSum);
+                        previousSum = categoryDTO.getTotalSumCategory();
+                    } else {
+                        // Do not update previousSum if the current category's total is 0
+                        previousSum = 0;
+                    }
+                }
+            }
+
+            // Return the values in the order specified in the config file
+            return new ArrayList<>(categoryMap.values());
+        }
+    }
+
+    @Service
+    public static class ExternalApiService {
+
+        private final RestTemplate restTemplate;
+
+        public ExternalApiService(RestTemplate restTemplate) {
+            this.restTemplate = restTemplate;
+        }
+
+        public List<OTPCatalog> getOtpCatalog() {
+            String url = "https://api.example.com/otpCatalog"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<Jurisdiction> getJurisdictions() {
+            String url = "https://api.example.com/jurisdictions"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<Obligation> getObligations() {
+            String url = "https://api.example.com/obligations"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<JurisdictionObligation> getJurisdictionObligations() {
+            String url = "https://api.example.com/jurisdictionObligations"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<Period> getPeriods() {
+            String url = "https://api.example.com/periods"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<Difference> getDifferences() {
+            String url = "https://api.example.com/differences"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<OTPCodeDifferenceMapping> getOtpCodeDifferenceMappings() {
+            String url = "https://api.example.com/otpCodeDifferenceMapping"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<JurisdictionObligationDifference> getJurisdictionObligationDifferences() {
+            String url = "https://api.example.com/jurisdictionObligationDifferences"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+
+        public List<DifferenceBalanceStaging> getDifferenceBalanceStaging() {
+            String url = "https://api.example.com/differenceBalanceStaging"; // Replace with actual API endpoint
+            return restTemplate.getForObject(url, List.class);
+        }
+    }
+
+    // DTO Classes
+
+    public static class CategoryDTO {
+        private String categoryName;
+        private String categoryDescription;
+        private double totalSumCategory;
+        private List<TimingDTO> timings = new ArrayList<>();
+
+        public CategoryDTO() {
+        }
+
+        public CategoryDTO(String categoryName, String categoryDescription) {
+            this.categoryName = categoryName;
+            this.categoryDescription = categoryDescription;
+        }
+
+        public String getCategoryName() {
+            return categoryName;
+        }
+
+        public void setCategoryName(String categoryName) {
+            this.categoryName = categoryName;
+        }
+
+        public String getCategoryDescription() {
+            return categoryDescription;
+        }
+
+        public void setCategoryDescription(String categoryDescription) {
+            this.categoryDescription = categoryDescription;
+        }
+
+        public double getTotalSumCategory() {
+            return totalSumCategory;
+        }
+
+        public void setTotalSumCategory(double totalSumCategory) {
+            this.totalSumCategory = totalSumCategory;
+        }
+
+        public List<TimingDTO> getTimings() {
+            return timings;
+        }
+
+        public void setTimings(List<TimingDTO> timings) {
+            this.timings = timings;
+        }
+    }
+
+    public static class TimingDTO {
+        private String timingName;
+        private double totalSumOTPCode;
+        private List<OTPCodeDTO> otpCodes = new ArrayList<>();
+
+        public String getTimingName() {
+            return timingName;
+        }
+
+        public void setTimingName(String timingName) {
+            this.timingName = timingName;
+        }
+
+        public double getTotalSumOTPCode() {
+            return totalSumOTPCode;
+        }
+
+        public void setTotalSumOTPCode(double totalSumOTPCode) {
+            this.totalSumOTPCode = totalSumOTPCode;
+        }
+
+        public List<OTPCodeDTO> getOtpCodes() {
+            return otpCodes;
+        }
+
+        public void setOtpCodes(List<OTPCodeDTO> otpCodes) {
+            this.otpCodes = otpCodes;
+        }
+    }
+
+    public static class OTPCodeDTO {
+        private String otpCodeName;
+        private String otpCodeDescription;
+        private double totalSumDifferences;
+        private List<DifferencesDTO> differences = new ArrayList<>();
+
+        public String getOtpCodeName() {
+            return otpCodeName;
+        }
+
+        public void setOtpCodeName(String otpCodeName) {
+            this.otpCodeName = otpCodeName;
+        }
+
+        public String getOtpCodeDescription() {
+            return otpCodeDescription;
+        }
+
+        public void setOtpCodeDescription(String otpCodeDescription) {
+            this.otpCodeDescription = otpCodeDescription;
+        }
+
+        public double getTotalSumDifferences() {
+            return totalSumDifferences;
+        }
+
+        public void setTotalSumDifferences(double totalSumDifferences) {
+            this.totalSumDifferences = totalSumDifferences;
+        }
+
+        public List<DifferencesDTO> getDifferences() {
+            return differences;
+        }
+
+        public void setDifferences(List<DifferencesDTO> differences) {
+            this.differences = differences;
+        }
+    }
+
+    public static class DifferencesDTO {
+        private String differenceName;
+        private double differenceAmount;
+
+        public String getDifferenceName() {
+            return differenceName;
+        }
+
+        public void setDifferenceName(String differenceName) {
+            this.differenceName = differenceName;
+        }
+
+        public double getDifferenceAmount() {
+            return differenceAmount;
+        }
+
+        public void setDifferenceAmount(double differenceAmount) {
+            this.differenceAmount = differenceAmount;
+        }
+    }
+
+    // Entity Classes for API Data
+
+    public static class OTPCatalog {
+        private String otpCode;
+        private String otpDescription;
+
+        public String getOtpCode() {
+            return otpCode;
+        }
+
+        public void setOtpCode(String otpCode) {
+            this.otpCode = otpCode;
+        }
+
+        public String getOtpDescription() {
+            return otpDescription;
+        }
+
+        public void setOtpDescription(String otpDescription) {
+            this.otpDescription = otpDescription;
+        }
+    }
+
+    public static class Jurisdiction {
+        private Long jurisdictionId;
+        private String jurisdictionName;
+
+        public Long getJurisdictionId() {
+            return jurisdictionId;
+        }
+
+        public void setJurisdictionId(Long jurisdictionId) {
+            this.jurisdictionId = jurisdictionId;
+        }
+
+        public String getJurisdictionName() {
+            return jurisdictionName;
+        }
+
+        public void setJurisdictionName(String jurisdictionName) {
+            this.jurisdictionName = jurisdictionName;
+        }
+    }
+
+    public static class Obligation {
+        private Long obligationId;
+        private String obligationName;
+
+        public Long getObligationId() {
+            return obligationId;
+        }
+
+        public void setObligationId(Long obligationId) {
+            this.obligationId = obligationId;
+        }
+
+        public String getObligationName() {
+            return obligationName;
+        }
+
+        public void setObligationName(String obligationName) {
+            this.obligationName = obligationName;
+        }
+    }
+
+    public static class JurisdictionObligation {
+        private Long jurisdictionObligationId;
+        private Long jurisdictionId;
+        private Long obligationId;
+
+        public Long getJurisdictionObligationId() {
+            return jurisdictionObligationId;
+        }
+
+        public void setJurisdictionObligationId(Long jurisdictionObligationId) {
+            this.jurisdictionObligationId = jurisdictionObligationId;
+        }
+
+        public Long getJurisdictionId() {
+            return jurisdictionId;
+        }
+
+        public void setJurisdictionId(Long jurisdictionId) {
+            this.jurisdictionId = jurisdictionId;
+        }
+
+        public Long getObligationId() {
+            return obligationId;
+        }
+
+        public void setObligationId(Long obligationId) {
+            this.obligationId = obligationId;
+        }
+    }
+
+    public static class Period {
+        private Long periodId;
+        private String periodName;
+        private Long jurisdictionObligationId;
+
+        public Long getPeriodId() {
+            return periodId;
+        }
+
+        public void setPeriodId(Long periodId) {
+            this.periodId = periodId;
+        }
+
+        public String getPeriodName() {
+            return periodName;
+        }
+
+        public void setPeriodName(String periodName) {
+            this.periodName = periodName;
+        }
+
+        public Long getJurisdictionObligationId() {
+            return jurisdictionObligationId;
+        }
+
+        public void setJurisdictionObligationId(Long jurisdictionObligationId) {
+            this.jurisdictionObligationId = jurisdictionObligationId;
+        }
+    }
+
+    public static class Difference {
+        private Long differenceId;
+        private String differenceName;
+        private String differenceCategory;
+        private String differenceTiming;
+
+        public Long getDifferenceId() {
+            return differenceId;
+        }
+
+        public void setDifferenceId(Long differenceId) {
+            this.differenceId = differenceId;
+        }
+
+        public String getDifferenceName() {
+            return differenceName;
+        }
+
+        public void setDifferenceName(String differenceName) {
+            this.differenceName = differenceName;
+        }
+
+        public String getDifferenceCategory() {
+            return differenceCategory;
+        }
+
+        public void setDifferenceCategory(String differenceCategory) {
+            this.differenceCategory = differenceCategory;
+        }
+
+        public String getDifferenceTiming() {
+            return differenceTiming;
+        }
+
+        public void setDifferenceTiming(String differenceTiming) {
+            this.differenceTiming = differenceTiming;
+        }
+    }
+
+    public static class OTPCodeDifferenceMapping {
+        private String otpCode;
+        private Long differenceId;
+
+        public String getOtpCode() {
+            return otpCode;
+        }
+
+        public void setOtpCode(String otpCode) {
+            this.otpCode = otpCode;
+        }
+
+        public Long getDifferenceId() {
+            return differenceId;
+        }
+
+        public void setDifferenceId(Long differenceId) {
+            this.differenceId = differenceId;
+        }
+    }
+
+    public static class JurisdictionObligationDifference {
+        private Long jurisdictionObligationDifferenceId;
+        private Long jurisdictionObligationId;
+        private Long differenceId;
+
+        public Long getJurisdictionObligationDifferenceId() {
+            return jurisdictionObligationDifferenceId;
+        }
+
+        public void setJurisdictionObligationDifferenceId(Long jurisdictionObligationDifferenceId) {
+            this.jurisdictionObligationDifferenceId = jurisdictionObligationDifferenceId;
+        }
+
+        public Long getJurisdictionObligationId() {
+            return jurisdictionObligationId;
+        }
+
+        public void setJurisdictionObligationId(Long jurisdictionObligationId) {
+            this.jurisdictionObligationId = jurisdictionObligationId;
+        }
+
+        public Long getDifferenceId() {
+            return differenceId;
+        }
+
+        public void setDifferenceId(Long differenceId) {
+            this.differenceId = differenceId;
+        }
+    }
+
+    public static class DifferenceBalanceStaging {
+        private Long stagingId;
+        private Long jurisdictionObligationDifferenceId;
+        private String entityId;
+        private Long periodId;
+        private double amount;
+
+        public Long getStagingId() {
+            return stagingId;
+        }
+
+        public void setStagingId(Long stagingId) {
+            this.stagingId = stagingId;
+        }
+
+        public Long getJurisdictionObligationDifferenceId() {
+            return jurisdictionObligationDifferenceId;
+        }
+
+        public void setJurisdictionObligationDifferenceId(Long jurisdictionObligationDifferenceId) {
+            this.jurisdictionObligationDifferenceId = jurisdictionObligationDifferenceId;
+        }
+
+        public String getEntityId() {
+            return entityId;
+        }
+
+        public void setEntityId(String entityId) {
+            this.entityId = entityId;
+        }
+
+        public Long getPeriodId() {
+            return periodId;
+        }
+
+        public void setPeriodId(Long periodId) {
+            this.periodId = periodId;
+        }
+
+        public double getAmount() {
+            return amount;
+        }
+
+        public void setAmount(double amount) {
+            this.amount = amount;
+        }
+    }
+}
+
+//
+categories:
+  - name: Gaap to Stat
+    description: "Description for Gaap to Stat"
+  - name: Stat to Tax
+    description: "Description for Stat to Tax"
+  - name: NOL
+    description: "Description for NOL"
