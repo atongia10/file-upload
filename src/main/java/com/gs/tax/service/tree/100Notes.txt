@@ -584,3 +584,96 @@ public record OTPCodeDifferenceMapping(String otpCode, Long differenceId) {}
 public record JurisdictionObligationDifference(Long jurisdictionObligationDifferenceId, Long jurisdictionObligationId, Long differenceId) {}
 
 public record DifferenceBalanceStaging(Long stagingId, Long jurisdictionObligationDifferenceId, String entityId, Long periodId, double amount) {}
+
+	@Service
+	public class ExternalApiService {
+
+		private final RestTemplate restTemplate;
+
+		public ExternalApiService(RestTemplate restTemplate) {
+			this.restTemplate = restTemplate;
+		}
+
+		public List<OTPCatalog> getOtpCatalog() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new OTPCatalog("PVG01", "This is PVG01 Description"),
+					new OTPCatalog("PVG02", "This is PVG02 Description"),
+					new OTPCatalog("PVG03", "This is PVG03 Description")
+			);
+		}
+
+		public List<Jurisdiction> getJurisdictions() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new Jurisdiction(1L, "Singapore"),
+					new Jurisdiction(2L, "India")
+			);
+		}
+
+		public List<Obligation> getObligations() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new Obligation(1L, "Provision"),
+					new Obligation(2L, "Compliance")
+			);
+		}
+
+		public List<JurisdictionObligation> getJurisdictionObligations() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new JurisdictionObligation(1L, 1L, 1L)
+			);
+		}
+
+		public List<Period> getPeriods() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new Period(1L, "2024-Q1", 1L)
+			);
+		}
+
+		public List<Difference> getDifferences() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new Difference(1L, "DifferenceOne", "Gaap to Stat", "Permanent"),
+					new Difference(2L, "DifferenceTwo", "Gaap to Stat", "Temporary"),
+					new Difference(3L, "DifferenceThree", "Stat to Tax", "Permanent"),
+					new Difference(4L, "DifferenceFour", "Stat to Tax", "Temporary"),
+					new Difference(5L, "DifferenceFive", "NOL", "Temporary")
+			);
+		}
+
+		public List<OTPCodeDifferenceMapping> getOtpCodeDifferenceMappings() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new OTPCodeDifferenceMapping("PVG01", 1L),
+					new OTPCodeDifferenceMapping("PVG01", 2L),
+					new OTPCodeDifferenceMapping("PVG01", 3L),
+					new OTPCodeDifferenceMapping("PVG02", 4L),
+					new OTPCodeDifferenceMapping("PVG03", 5L)
+			);
+		}
+
+		public List<JurisdictionObligationDifference> getJurisdictionObligationDifferences() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new JurisdictionObligationDifference(1L, 1L, 1L),
+					new JurisdictionObligationDifference(2L, 1L, 2L),
+					new JurisdictionObligationDifference(3L, 1L, 3L),
+					new JurisdictionObligationDifference(4L, 1L, 4L),
+					new JurisdictionObligationDifference(5L, 1L, 5L)
+			);
+		}
+
+		public List<DifferenceBalanceStaging> getDifferenceBalanceStaging() {
+			// Hardcoded data for testing
+			return Arrays.asList(
+					new DifferenceBalanceStaging(1L, 1L, "0802", 1L, 10.0),
+					new DifferenceBalanceStaging(2L, 2L, "0802", 1L, 20.0),
+					new DifferenceBalanceStaging(3L, 3L, "0802", 1L, 30.0),
+					new DifferenceBalanceStaging(4L, 4L, "0802", 1L, 40.0),
+					new DifferenceBalanceStaging(5L, 5L, "0802", 1L, 50.0)
+			);
+		}
+	}
