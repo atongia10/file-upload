@@ -677,3 +677,337 @@ public record DifferenceBalanceStaging(Long stagingId, Long jurisdictionObligati
 			);
 		}
 	}
+
+	===
+	<dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-test</artifactId>
+        <scope>test</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.mockito</groupId>
+        <artifactId>mockito-core</artifactId>
+        <scope>test</scope>
+    </dependency>
+
+    package com.example;
+
+    import org.junit.jupiter.api.BeforeEach;
+    import org.junit.jupiter.api.Test;
+    import org.mockito.InjectMocks;
+    import org.mockito.Mock;
+    import org.mockito.MockitoAnnotations;
+
+    import java.util.Collections;
+    import java.util.List;
+
+    import static org.junit.jupiter.api.Assertions.assertEquals;
+    import static org.mockito.Mockito.*;
+
+    class CategoryControllerTest {
+
+        @Mock
+        private DataExtractionService dataExtractionService;
+
+        @Mock
+        private ValidationService validationService;
+
+        @Mock
+        private HierarchyBuildingService hierarchyBuildingService;
+
+        @InjectMocks
+        private CategoryController categoryController;
+
+        @BeforeEach
+        void setUp() {
+            MockitoAnnotations.openMocks(this);
+        }
+
+        @Test
+        void testGetCategories_Success() {
+            // Given
+            String jurisdictionName = "Singapore";
+            String obligationName = "Provision";
+            String periodName = "2024-Q1";
+            String entityId = "0802";
+
+            Jurisdiction jurisdiction = new Jurisdiction(1L, jurisdictionName);
+            Obligation obligation = new Obligation(1L, obligationName);
+            JurisdictionObligation jurisdictionObligation = new JurisdictionObligation(1L, 1L, 1L);
+            Period period = new Period(1L, periodName, 1L);
+
+            when(validationService.validateJurisdiction(jurisdictionName, List.of(jurisdiction))).thenReturn(1L);
+            when(validationService.validateObligation(obligationName, List.of(obligation))).thenReturn(1L);
+            when(validationService.validateJurisdictionObligation(1L, 1L, List.of(jurisdictionObligation))).thenReturn(1L);
+            when(validationService.validatePeriod(1L, periodName, List.of(period))).thenReturn(1L);
+
+            when(dataExtractionService.getJurisdictions()).thenReturn(List.of(jurisdiction));
+            when(dataExtractionService.getObligations()).thenReturn(List.of(obligation));
+            when(dataExtractionService.getJurisdictionObligations()).thenReturn(List.of(jurisdictionObligation));
+            when(dataExtractionService.getPeriods()).thenReturn(List.of(period));
+
+            CategoryDTO categoryDTO = new CategoryDTO();
+            when(hierarchyBuildingService.buildCategoryHierarchy(anyLong(), anyString(), anyLong(), any(), any(), any(), any(), any())).thenReturn(List.of(categoryDTO));
+
+            // When
+            List<CategoryDTO> result = categoryController.getCategories(jurisdictionName, obligationName, periodName, entityId);
+
+            // Then
+            assertEquals(1, result.size());
+            verify(validationService).validateJurisdiction(jurisdictionName, List.of(jurisdiction));
+            verify(validationService).validateObligation(obligationName, List.of(obligation));
+            verify(validationService).validateJurisdictionObligation(1L, 1L, List.of(jurisdictionObligation));
+            verify(validationService).validatePeriod(1L, periodName, List.of(period));
+        }
+
+        @Test
+        void testGetCategories_NotFound() {
+            // Given
+            String jurisdictionName = "Invalid";
+            String obligationName = "Provision";
+            String periodName = "2024-Q1";
+            String entityId = "0802";
+
+            when(validationService.validateJurisdiction(jurisdictionName, Collections.emptyList())).thenThrow(new ResourceNotFoundException("Jurisdiction not found: " + jurisdictionName));
+
+            // When & Then
+            try {
+                categoryController.getCategories(jurisdictionName, obligationName, periodName, entityId);
+            } catch (ResourceNotFoundException e) {
+                assertEquals("Jurisdiction not found: Invalid", e.getMessage());
+            }
+        }
+    }
+
+
+
+package com.example;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.*;
+
+class HierarchyBuildingServiceTest {
+
+    @Mock
+    private CategoriesConfig categoriesConfig;
+
+    @InjectMocks
+    private HierarchyBuildingService hierarchyBuildingService;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void testBuildCategoryHierarchy_Success() {
+        // Given
+        Long jurisdictionObligationId = 1L;
+        String entityId = "0802";
+        Long periodId = 1L;
+
+        CategoryDTO categoryDTO = new CategoryDTO();
+        categoryDTO.setCategoryName("Gaap to Stat");
+        categoryDTO.setCategoryDescription("Description for Gaap to Stat");
+
+        when(categoriesConfig.getCategories()).thenReturn(List.of(categoryDTO));
+
+        OTPCatalog otpCatalog = new OTPCatalog("PVG01", "This is PVG01 Description");
+        Difference difference = new Difference(1L, "DifferenceOne", "Gaap to Stat", "Permanent");
+        OTPCodeDifferenceMapping mapping = new OTPCodeDifferenceMapping("PVG01", 1L);
+        JurisdictionObligationDifference jurisdictionObligationDifference = new JurisdictionObligationDifference(1L, 1L, 1L);
+        DifferenceBalanceStaging staging = new DifferenceBalanceStaging(1L, 1L, "0802", 1L, 10.0);
+
+        List<CategoryDTO> result = hierarchyBuildingService.buildCategoryHierarchy(
+                jurisdictionObligationId, entityId, periodId,
+                List.of(otpCatalog), List.of(difference),
+                List.of(mapping), List.of(jurisdictionObligationDifference),
+                List.of(staging)
+        );
+
+        // Then
+        assertEquals(1, result.size());
+        assertEquals(10.0, result.get(0).getTotalSumCategory());
+    }
+
+    @Test
+    void testBuildCategoryHierarchy_NoDifferences() {
+        // Given
+        when(categoriesConfig.getCategories()).thenReturn(List.of(new CategoryDTO()));
+
+        List<CategoryDTO> result = hierarchyBuildingService.buildCategoryHierarchy(
+                1L, "0802", 1L,
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList()
+        );
+
+        // Then
+        assertEquals(0, result.size());
+    }
+}
+
+
+package com.example;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.MockitoAnnotations;
+
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+class ValidationServiceTest {
+
+    @InjectMocks
+    private ValidationService validationService;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void testValidateJurisdiction_Success() {
+        // Given
+        Jurisdiction jurisdiction = new Jurisdiction(1L, "Singapore");
+
+        // When
+        Long result = validationService.validateJurisdiction("Singapore", List.of(jurisdiction));
+
+        // Then
+        assertEquals(1L, result);
+    }
+
+    @Test
+    void testValidateJurisdiction_NotFound() {
+        // When & Then
+        assertThrows(ResourceNotFoundException.class, () ->
+                validationService.validateJurisdiction("Invalid", List.of(new Jurisdiction(1L, "Singapore"))));
+    }
+
+    @Test
+    void testValidateObligation_Success() {
+        // Given
+        Obligation obligation = new Obligation(1L, "Provision");
+
+        // When
+        Long result = validationService.validateObligation("Provision", List.of(obligation));
+
+        // Then
+        assertEquals(1L, result);
+    }
+
+    @Test
+    void testValidateObligation_NotFound() {
+        // When & Then
+        assertThrows(ResourceNotFoundException.class, () ->
+                validationService.validateObligation("Invalid", List.of(new Obligation(1L, "Provision"))));
+    }
+
+    @Test
+    void testValidateJurisdictionObligation_Success() {
+        // Given
+        JurisdictionObligation jurisdictionObligation = new JurisdictionObligation(1L, 1L, 1L);
+
+        // When
+        Long result = validationService.validateJurisdictionObligation(1L, 1L, List.of(jurisdictionObligation));
+
+        // Then
+        assertEquals(1L, result);
+    }
+
+    @Test
+    void testValidateJurisdictionObligation_NotFound() {
+        // When & Then
+        assertThrows(ResourceNotFoundException.class, () ->
+                validationService.validateJurisdictionObligation(1L, 1L, List.of(new JurisdictionObligation(2L, 2L, 2L))));
+    }
+
+    @Test
+    void testValidatePeriod_Success() {
+        // Given
+        Period period = new Period(1L, "2024-Q1", 1L);
+
+        // When
+        Long result = validationService.validatePeriod(1L, "2024-Q1", List.of(period));
+
+        // Then
+        assertEquals(1L, result);
+    }
+
+    @Test
+    void testValidatePeriod_NotFound() {
+        // When & Then
+        assertThrows(ResourceNotFoundException.class, () ->
+                validationService.validatePeriod(1L, "Invalid", List.of(new Period(1L, "2024-Q1", 1L))));
+    }
+}
+
+
+package com.example;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InjectMocks;
+import org.mockito.MockitoAnnotations;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
+class GlobalExceptionHandlerTest {
+
+    @InjectMocks
+    private GlobalExceptionHandler globalExceptionHandler;
+
+    @BeforeEach
+    void setUp() {
+        MockitoAnnotations.openMocks(this);
+    }
+
+    @Test
+    void testHandleAllExceptions() {
+        // When
+        ResponseEntity<String> response = globalExceptionHandler.handleAllExceptions(new Exception("Test Exception"), null);
+
+        // Then
+        assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
+        assertEquals("An unexpected error occurred. Please contact support.", response.getBody());
+    }
+
+    @Test
+    void testHandleIllegalStateExceptions() {
+        // When
+        ResponseEntity<String> response = globalExceptionHandler.handleIllegalStateExceptions(new IllegalStateException("Test IllegalStateException"), null);
+
+        // Then
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Test IllegalStateException", response.getBody());
+    }
+
+    @Test
+    void testHandleResourceNotFoundExceptions() {
+        // When
+        ResponseEntity<String> response = globalExceptionHandler.handleResourceNotFoundExceptions(new ResourceNotFoundException("Test ResourceNotFoundException"), null);
+
+        // Then
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        assertEquals("Test ResourceNotFoundException", response.getBody());
+    }
+}
+
+
