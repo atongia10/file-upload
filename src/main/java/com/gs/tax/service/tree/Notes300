@@ -1,0 +1,358 @@
+package com.example.hierarchybuilder;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.*;
+
+import javax.annotation.PostConstruct;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+// Main Spring Boot Application
+@SpringBootApplication
+public class HierarchyBuilderApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(HierarchyBuilderApplication.class, args);
+    }
+}
+
+// Configuration Properties Class
+@Configuration
+@ConfigurationProperties(prefix = "provision-categories")
+class CategoryProperties {
+    private List<CategoryConfig> categories;
+    private BigDecimal ptbi;
+
+    public List<CategoryConfig> getCategories() {
+        return categories;
+    }
+
+    public void setCategories(List<CategoryConfig> categories) {
+        this.categories = categories;
+    }
+
+    public BigDecimal getPtbi() {
+        return ptbi;
+    }
+
+    public void setPtbi(BigDecimal ptbi) {
+        this.ptbi = ptbi;
+    }
+}
+
+class CategoryConfig {
+    private String name;
+    private String categoryDescription;
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getCategoryDescription() {
+        return categoryDescription;
+    }
+
+    public void setCategoryDescription(String categoryDescription) {
+        this.categoryDescription = categoryDescription;
+    }
+}
+
+// Controller
+@RestController
+@RequestMapping("/api/hierarchy")
+class HierarchyBuilderController {
+
+    private final HierarchyBuilderService hierarchyBuilderService;
+
+    @Autowired
+    public HierarchyBuilderController(HierarchyBuilderService hierarchyBuilderService) {
+        this.hierarchyBuilderService = hierarchyBuilderService;
+    }
+
+    @PostMapping("/build")
+    public List<CategoryDTO> buildHierarchy() {
+        return hierarchyBuilderService.buildHierarchy();
+    }
+}
+
+// Service
+@Service
+class HierarchyBuilderService {
+
+    private final CategoryProperties categoryProperties;
+
+    @Autowired
+    public HierarchyBuilderService(CategoryProperties categoryProperties) {
+        this.categoryProperties = categoryProperties;
+    }
+
+    private List<String> orderedCategories;
+
+    @PostConstruct
+    public void init() {
+        // Store allowed categories from configuration in the order provided
+        orderedCategories = categoryProperties.getCategories().stream()
+                .map(CategoryConfig::getName)
+                .collect(Collectors.toList());
+    }
+
+    public List<CategoryDTO> buildHierarchy() {
+        // Stubbed input data
+        List<DifferenceBalanceStagingObject> inputData = List.of(
+                new DifferenceBalanceStagingObject("Gaap To Stat", "Permanent", "OTP01", "diff1", new BigDecimal("10")),
+                new DifferenceBalanceStagingObject("Gaap To Stat", "Permanent", "OTP02", "diff2", new BigDecimal("20")),
+                new DifferenceBalanceStagingObject("Gaap To Stat", "Temporary", "OTP03", "diff3", new BigDecimal("30")),
+                new DifferenceBalanceStagingObject("Stat to Tax", "Permanent", "OTP04", "diff4", new BigDecimal("40")),
+                new DifferenceBalanceStagingObject("Stat to Tax", "Temporary", "OTP05", "diff5", new BigDecimal("50"))
+        );
+
+        List<CategoryDTO> categories = new ArrayList<>();
+
+        // Add PTBI Category
+        CategoryDTO ptbiCategory = new CategoryDTO("PTBI", "Provision to Be Invoiced");
+        ptbiCategory.setTotalC(categoryProperties.getPtbi()); // Set calculated PTBI value
+        categories.add(ptbiCategory);
+
+        inputData.forEach(row -> {
+            String categoryName = row.categoryName();
+            CategoryConfig categoryConfig = categoryProperties.getCategories().stream()
+                    .filter(config -> config.getName().equals(categoryName))
+                    .findFirst()
+                    .orElse(null);
+
+            if (categoryConfig == null) {
+                return; // Skip categories not in configuration
+            }
+
+            String timingName = row.timingName();
+            String otpCodeName = row.otpCodeName();
+            String differenceName = row.differenceName();
+            BigDecimal amount = row.amount();
+
+            // Find or create Category
+            CategoryDTO category = categories.stream()
+                    .filter(c -> c.getCategoryName().equals(categoryName))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        CategoryDTO newCategory = new CategoryDTO(categoryName, categoryConfig.getCategoryDescription());
+                        categories.add(newCategory);
+                        return newCategory;
+                    });
+            category.addAmount(amount);
+
+            // Find or create Timing
+            TimingDTO timing = category.getTimings().stream()
+                    .filter(t -> t.getTimingName().equals(timingName))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        TimingDTO newTiming = new TimingDTO(timingName, "Total " + timingName + " " + categoryName);
+                        category.getTimings().add(newTiming);
+                        return newTiming;
+                    });
+            timing.addAmount(amount);
+
+            // Find or create OTPCode
+            OTPCodesDTO otpCode = timing.getOtpCodes().stream()
+                    .filter(o -> o.getOtpCodeName().equals(otpCodeName))
+                    .findFirst()
+                    .orElseGet(() -> {
+                        OTPCodesDTO newOTPCode = new OTPCodesDTO(otpCodeName);
+                        timing.getOtpCodes().add(newOTPCode);
+                        return newOTPCode;
+                    });
+            otpCode.addAmount(amount);
+
+            // Find or create Difference
+            otpCode.getDifferences().stream()
+                    .filter(d -> d.getDifferenceName().equals(differenceName))
+                    .findFirst()
+                    .ifPresentOrElse(
+                            d -> d.addAmount(amount),
+                            () -> otpCode.getDifferences().add(new DifferenceDTO(differenceName, amount))
+                    );
+        });
+
+        // Add any missing categories from the configuration file
+        categoryProperties.getCategories().forEach(config -> {
+            boolean categoryExists = categories.stream()
+                    .anyMatch(c -> c.getCategoryName().equals(config.getName()));
+            if (!categoryExists) {
+                CategoryDTO newCategory = new CategoryDTO(config.getName(), config.getCategoryDescription());
+                newCategory.setTotalC(BigDecimal.ZERO); // Set totalC to 0 for missing categories
+                categories.add(newCategory);
+            }
+        });
+
+        // Sort categories before calculating cumulative totals
+        categories.sort((c1, c2) -> Integer.compare(orderedCategories.indexOf(c1.getCategoryName()), orderedCategories.indexOf(c2.getCategoryName())));
+
+        // Calculate cumulative totals only for categories present in the input data
+        BigDecimal cumulativeTotal = categoryProperties.getPtbi();
+        for (CategoryDTO category : categories) {
+            if (!category.getCategoryName().equals("PTBI") && category.getTotalC().compareTo(BigDecimal.ZERO) != 0) {
+                category.setTotalC(category.getTotalC().add(cumulativeTotal));
+                cumulativeTotal = category.getTotalC();
+            }
+        }
+
+        // Return categories ordered according to allowed categories
+        return categories;
+    }
+}
+
+// DTOs and Input Object
+
+record DifferenceBalanceStagingObject(
+        @JsonProperty("categoryName") String categoryName,
+        @JsonProperty("timingName") String timingName,
+        @JsonProperty("otpCodeName") String otpCodeName,
+        @JsonProperty("differenceName") String differenceName,
+        @JsonProperty("amount") BigDecimal amount
+) {}
+
+class CategoryDTO {
+    private final String categoryName;
+    private final String categoryDescription;
+    private BigDecimal totalC;
+    private final List<TimingDTO> timings;
+
+    public CategoryDTO(String categoryName, String categoryDescription) {
+        this.categoryName = categoryName;
+        this.categoryDescription = categoryDescription;
+        this.timings = new ArrayList<>();
+        this.totalC = BigDecimal.ZERO;
+    }
+
+    @JsonProperty("categoryName")
+    public String getCategoryName() {
+        return categoryName;
+    }
+
+    @JsonProperty("categoryDescription")
+    public String getCategoryDescription() {
+        return categoryDescription;
+    }
+
+    @JsonProperty("totalC")
+    public BigDecimal getTotalC() {
+        return totalC;
+    }
+
+    public void setTotalC(BigDecimal totalC) {
+        this.totalC = totalC;
+    }
+
+    @JsonProperty("timings")
+    public List<TimingDTO> getTimings() {
+        return timings;
+    }
+
+    public void addAmount(BigDecimal amount) {
+        this.totalC = this.totalC.add(amount);
+    }
+}
+
+class TimingDTO {
+    private final String timingName;
+    private final String timingDescription;
+    private BigDecimal totalT;
+    private final List<OTPCodesDTO> otpCodes;
+
+    public TimingDTO(String timingName, String timingDescription) {
+        this.timingName = timingName;
+        this.timingDescription = timingDescription;
+        this.otpCodes = new ArrayList<>();
+        this.totalT = BigDecimal.ZERO;
+    }
+
+    @JsonProperty("timingName")
+    public String getTimingName() {
+        return timingName;
+    }
+
+    @JsonProperty("timingDescription")
+    public String getTimingDescription() {
+        return timingDescription;
+    }
+
+    @JsonProperty("totalT")
+    public BigDecimal getTotalT() {
+        return totalT;
+    }
+
+    @JsonProperty("otpCodes")
+    public List<OTPCodesDTO> getOtpCodes() {
+        return otpCodes;
+    }
+
+    public void addAmount(BigDecimal amount) {
+        this.totalT = this.totalT.add(amount);
+    }
+}
+
+class OTPCodesDTO {
+    private final String otpCodeName;
+    private BigDecimal totalO;
+    private final List<DifferenceDTO> differences;
+
+    public OTPCodesDTO(String otpCodeName) {
+        this.otpCodeName = otpCodeName;
+        this.differences = new ArrayList<>();
+        this.totalO = BigDecimal.ZERO;
+    }
+
+    @JsonProperty("otpCodeName")
+    public String getOtpCodeName() {
+        return otpCodeName;
+    }
+
+    @JsonProperty("totalO")
+    public BigDecimal getTotalO() {
+        return totalO;
+    }
+
+    @JsonProperty("differences")
+    public List<DifferenceDTO> getDifferences() {
+        return differences;
+    }
+
+    public void addAmount(BigDecimal amount) {
+        this.totalO = this.totalO.add(amount);
+    }
+}
+
+class DifferenceDTO {
+    private final String differenceName;
+    private BigDecimal amount;
+
+    public DifferenceDTO(String differenceName, BigDecimal amount) {
+        this.differenceName = differenceName;
+        this.amount = amount;
+    }
+
+    @JsonProperty("differenceName")
+    public String getDifferenceName() {
+        return differenceName;
+    }
+
+    @JsonProperty("amount")
+    public BigDecimal getAmount() {
+        return amount;
+    }
+
+    public void addAmount(BigDecimal amount) {
+        this.amount = this.amount.add(amount);
+    }
+}
