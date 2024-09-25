@@ -1,0 +1,293 @@
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+@SpringBootApplication
+public class DemoApplication {
+
+	public static void main(String[] args) {
+		SpringApplication.run(DemoApplication.class, args);
+	}
+
+	@Bean
+	public RestTemplate restTemplate() {
+		return new RestTemplate();
+	}
+
+	@RestController
+	@RequestMapping("/api")
+	public class HierarchyController {
+
+		private final CategoryProperties categoryProperties;
+		private final RestTemplate restTemplate;
+
+		public HierarchyController(CategoryProperties categoryProperties, RestTemplate restTemplate) {
+			this.categoryProperties = categoryProperties;
+			this.restTemplate = restTemplate;
+		}
+
+		@GetMapping("/categories")
+		public List<CategoryDTO> getCategoriesHierarchy() {
+			double ptbi = fetchPTBI();
+			ptbi = 15.00;
+			List<DifferenceInput> differences = fetchDifferences();
+			List<CategoryConfig> validCategories = categoryProperties.getCategories();
+
+			List<CategoryDTO> categoryHierarchy = new ArrayList<>();
+			double previousCategorySum = 0.0;
+			boolean isFirstCategory = true;
+
+			for (CategoryConfig categoryConfig : validCategories) {
+				CategoryDTO categoryDTO = new CategoryDTO(categoryConfig.getName(), categoryConfig.getDescription());
+
+				List<DifferenceInput> categoryDifferences = differences.stream()
+						.filter(d -> d.getDifferenceCategory().equals(categoryConfig.getName()))
+						.collect(Collectors.toList());
+
+				boolean hasDifferences = !categoryDifferences.isEmpty();
+
+				for (DifferenceInput difference : categoryDifferences) {
+					TimingDTO timingDTO = categoryDTO.getTimings().stream()
+							.filter(t -> t.getTimingName().equals(difference.getDifferenceTiming()))
+							.findFirst()
+							.orElseGet(() -> {
+								TimingDTO newTiming = new TimingDTO(difference.getDifferenceTiming(),
+										"Total " + difference.getDifferenceTiming() + " - " + categoryConfig.getName());
+								categoryDTO.addTiming(newTiming);
+								return newTiming;
+							});
+
+					OTPCodeDTO otpCodeDTO = timingDTO.getOtpCodes().stream()
+							.filter(o -> o.getOtpCodeName().equals(difference.getOtpCode()))
+							.findFirst()
+							.orElseGet(() -> {
+								OTPCodeDTO newOtpCode = new OTPCodeDTO(difference.getOtpCode(),
+										"Description for " + difference.getOtpCode());
+								timingDTO.addOtpCode(newOtpCode);
+								return newOtpCode;
+							});
+
+					DifferencesDTO differencesDTO = new DifferencesDTO(difference.getDifferenceName(), difference.getAmount());
+					otpCodeDTO.addDifference(differencesDTO); // Automatically updates the OTP code's total
+					timingDTO.recalculateTotalSumTiming(); // Recalculate total for timing after adding a difference
+				}
+
+				categoryDTO.recalculateTotalSumCategory(); // Recalculate total for category after processing all differences
+
+				if (isFirstCategory) {
+					categoryDTO.adjustFirstCategoryTotalSum(ptbi);
+					isFirstCategory = false;
+				} else {
+					categoryDTO.adjustTotalSumCategory(previousCategorySum);
+				}
+
+				if (hasDifferences || isFirstCategory) {
+					previousCategorySum = categoryDTO.getTotalSumCategory();
+				}
+
+				categoryHierarchy.add(categoryDTO);
+			}
+
+			return categoryHierarchy;
+		}
+
+		private double fetchPTBI() {
+			String ptbiUrl = "http://external-api.com/ptbi"; // Replace with actual API URL
+			try {
+				return restTemplate.getForObject(ptbiUrl, Double.class);
+			} catch (Exception e) {
+				e.printStackTrace();
+				return 15.0;
+			}
+		}
+
+		private List<DifferenceInput> fetchDifferences() {
+			String differencesUrl = "http://external-api.com/differences"; // Replace with actual API URL
+			try {
+				DifferenceInput[] differencesArray = restTemplate.getForObject(differencesUrl, DifferenceInput[].class);
+				return differencesArray != null ? Arrays.asList(differencesArray) : new ArrayList<>();
+			} catch (Exception e) {
+				e.printStackTrace();
+				return Arrays.asList(
+						new DifferenceInput("1", "abcd", "Permanent", "Gaap to Stat", "ABCD", 300.0),
+						new DifferenceInput("2", "tuvw", "Permanent", "Stat to Tax", "PQRS", 100.0),
+						new DifferenceInput("3", "pqrs", "Temporary", "Stat to Tax", "ABCD", 200.0)
+				);
+				//return new ArrayList<>();
+			}
+		}
+	}
+
+	static class DifferencesDTO {
+		private String name;
+		private double amount;
+
+		public DifferencesDTO(String name, double amount) {
+			this.name = name;
+			this.amount = amount;
+		}
+
+		public String getName() { return name; }
+		public double getAmount() { return amount; }
+	}
+
+	static class OTPCodeDTO {
+		private String otpCodeName;
+		private String otpCodeDescription;
+		private double totalSumOtpCodes;
+		private List<DifferencesDTO> differences;
+
+		public OTPCodeDTO(String otpCodeName, String otpCodeDescription) {
+			this.otpCodeName = otpCodeName;
+			this.otpCodeDescription = otpCodeDescription;
+			this.totalSumOtpCodes = 0.0;
+			this.differences = new ArrayList<>();
+		}
+
+		public void addDifference(DifferencesDTO difference) {
+			this.differences.add(difference);
+			this.totalSumOtpCodes += difference.getAmount();
+		}
+
+		public String getOtpCodeName() { return otpCodeName; }
+		public String getOtpCodeDescription() { return otpCodeDescription; }
+		public double getTotalSumOtpCodes() { return totalSumOtpCodes; }
+		public List<DifferencesDTO> getDifferences() { return differences; }
+	}
+
+	static class TimingDTO {
+		private String timingName;
+		private String timingDescription;
+		private double totalSumTiming;
+		private List<OTPCodeDTO> otpCodes;
+
+		public TimingDTO(String timingName, String timingDescription) {
+			this.timingName = timingName;
+			this.timingDescription = timingDescription;
+			this.totalSumTiming = 0.0;
+			this.otpCodes = new ArrayList<>();
+		}
+
+		public void addOtpCode(OTPCodeDTO otpCode) {
+			this.otpCodes.add(otpCode);
+			recalculateTotalSumTiming();
+		}
+
+		public void recalculateTotalSumTiming() {
+			this.totalSumTiming = otpCodes.stream()
+					.mapToDouble(OTPCodeDTO::getTotalSumOtpCodes)
+					.sum();
+		}
+
+		public String getTimingName() { return timingName; }
+		public String getTimingDescription() { return timingDescription; }
+		public double getTotalSumTiming() { return totalSumTiming; }
+		public List<OTPCodeDTO> getOtpCodes() { return otpCodes; }
+	}
+
+	static class CategoryDTO {
+		private String categoryName;
+		private String categoryDescription;
+		private double totalSumCategory;
+		private List<TimingDTO> timings;
+
+		public CategoryDTO(String categoryName, String categoryDescription) {
+			this.categoryName = categoryName;
+			this.categoryDescription = categoryDescription;
+			this.totalSumCategory = 0.0;
+			this.timings = new ArrayList<>();
+		}
+
+		public void addTiming(TimingDTO timing) {
+			this.timings.add(timing);
+			recalculateTotalSumCategory();
+		}
+
+		public void recalculateTotalSumCategory() {
+			this.totalSumCategory = timings.stream()
+					.mapToDouble(TimingDTO::getTotalSumTiming)
+					.sum();
+		}
+
+		public void adjustFirstCategoryTotalSum(double ptbi) {
+			if (this.totalSumCategory == 0.0) {
+				this.totalSumCategory = ptbi;
+			} else {
+				this.totalSumCategory += ptbi;
+			}
+		}
+
+		/*public void adjustTotalSumCategory(double previousSum) {
+			if (this.totalSumCategory != 0.0) {
+				this.totalSumCategory += previousSum;
+			}
+		}*/
+		public void adjustTotalSumCategory(double previousSum) {
+			this.totalSumCategory += previousSum; // Always add the previous sum
+		}
+
+		public String getCategoryName() { return categoryName; }
+		public String getCategoryDescription() { return categoryDescription; }
+		public double getTotalSumCategory() { return totalSumCategory; }
+		public List<TimingDTO> getTimings() { return timings; }
+	}
+
+	@ConfigurationProperties(prefix = "provision-categories")
+	@Configuration
+	public static class CategoryProperties {
+		private List<CategoryConfig> categories;
+
+		public List<CategoryConfig> getCategories() {
+			return categories;
+		}
+
+		public void setCategories(List<CategoryConfig> categories) {
+			this.categories = categories;
+		}
+	}
+
+	public static class CategoryConfig {
+		private String name;
+		private String description;
+
+		public String getName() { return name; }
+		public void setName(String name) { this.name = name; }
+		public String getDescription() { return description; }
+		public void setDescription(String description) { this.description = description; }
+	}
+
+	static class DifferenceInput {
+		private String differenceId;
+		private String differenceName;
+		private String differenceTiming;
+		private String differenceCategory;
+		private String otpCode;
+		private double amount;
+
+		public DifferenceInput(String differenceId, String differenceName, String differenceTiming, String differenceCategory, String otpCode, double amount) {
+			this.differenceId = differenceId;
+			this.differenceName = differenceName;
+			this.differenceTiming = differenceTiming;
+			this.differenceCategory = differenceCategory;
+			this.otpCode = otpCode;
+			this.amount = amount;
+		}
+
+		public String getDifferenceCategory() { return differenceCategory; }
+		public String getDifferenceTiming() { return differenceTiming; }
+		public String getOtpCode() { return otpCode; }
+		public String getDifferenceName() { return differenceName; }
+		public double getAmount() { return amount; }
+	}
+}
