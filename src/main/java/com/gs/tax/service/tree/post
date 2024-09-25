@@ -1,293 +1,183 @@
-package com.example.demo;
-
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestTemplate;
-
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-@SpringBootApplication
-public class DemoApplication {
+public class ProvisionWorkPaperHierarchy {
 
-	public static void main(String[] args) {
-		SpringApplication.run(DemoApplication.class, args);
-	}
+    public static void main(String[] args) {
+        List<ProvisionWorkPaperData> provisionWorkPaperDataList = List.of(
+                new ProvisionWorkPaperData("GAAP to STAT", "Permanent", "PVG01", "Misc", 100),
+                new ProvisionWorkPaperData("GAAP to STAT", "Permanent", "PVG01", "Misc 2", 100),
+                new ProvisionWorkPaperData("GAAP to STAT", "Temporary", "PVG02", "Misc 3", 100),
+                new ProvisionWorkPaperData("STAT to TAX", "Permanent", "PVG01", "Misc", 100),
+                new ProvisionWorkPaperData("STAT to TAX", "Permanent", "PVG01", "Misc 2", 100),
+                new ProvisionWorkPaperData("STAT to TAX", "Temporary", "PVG02", "Misc 3", 100),
+                new ProvisionWorkPaperData("PTBI", "Temporary", "PVG02", "Misc 3", 100),
+                new ProvisionWorkPaperData("NOL", "Temporary", "PVG02", "Misc 3", 100)
 
-	@Bean
-	public RestTemplate restTemplate() {
-		return new RestTemplate();
-	}
 
-	@RestController
-	@RequestMapping("/api")
-	public class HierarchyController {
+        );
 
-		private final CategoryProperties categoryProperties;
-		private final RestTemplate restTemplate;
+        List<DifferenceCategory> hierarchy = buildInitialHierarchy(provisionWorkPaperDataList);
 
-		public HierarchyController(CategoryProperties categoryProperties, RestTemplate restTemplate) {
-			this.categoryProperties = categoryProperties;
-			this.restTemplate = restTemplate;
-		}
+        // Print the hierarchy
+        printHierarchy(hierarchy);
+    }
 
-		@GetMapping("/categories")
-		public List<CategoryDTO> getCategoriesHierarchy() {
-			double ptbi = fetchPTBI();
-			ptbi = 15.00;
-			List<DifferenceInput> differences = fetchDifferences();
-			List<CategoryConfig> validCategories = categoryProperties.getCategories();
+    private static List<DifferenceCategory> buildInitialHierarchy(List<ProvisionWorkPaperData> data) {
+        // Initialize an empty list to hold the hierarchy as it gets built
+        List<DifferenceCategory> hierarchy = new ArrayList<>();
 
-			List<CategoryDTO> categoryHierarchy = new ArrayList<>();
-			double previousCategorySum = 0.0;
-			boolean isFirstCategory = true;
+        // Build the hierarchy category by category
+        data.stream()
+                .collect(Collectors.groupingBy(ProvisionWorkPaperData::differenceCategory))
+                .entrySet()
+                .forEach(categoryEntry -> {
+                    String category = categoryEntry.getKey();
+                    List<ProvisionWorkPaperData> categoryData = categoryEntry.getValue();
 
-			for (CategoryConfig categoryConfig : validCategories) {
-				CategoryDTO categoryDTO = new CategoryDTO(categoryConfig.getName(), categoryConfig.getDescription());
+                    CategoryCalculationStrategy strategy;
+                    switch (category) {
+                        case "GAAP to STAT":
+                        case "STAT to TAX":
+                            strategy = new DefaultHierarchyStrategy();
+                            break;
+                        case "PTBI":
+                            strategy = new PtbiStrategy();
+                            break;
+                        case "NOL":  // Use the new strategy here
+                            strategy = new SameAsGaapToStatStrategy();
+                            break;
+                        default:
+                            return; // Skip NOL for now
+                    }
 
-				List<DifferenceInput> categoryDifferences = differences.stream()
-						.filter(d -> d.getDifferenceCategory().equals(categoryConfig.getName()))
-						.collect(Collectors.toList());
+                    // Calculate the category and add it to the hierarchy list
+                    DifferenceCategory calculatedCategory = strategy.calculateCategory(category, categoryData, hierarchy);
+                    hierarchy.add(calculatedCategory);
+                });
 
-				boolean hasDifferences = !categoryDifferences.isEmpty();
+        return hierarchy;
+    }
 
-				for (DifferenceInput difference : categoryDifferences) {
-					TimingDTO timingDTO = categoryDTO.getTimings().stream()
-							.filter(t -> t.getTimingName().equals(difference.getDifferenceTiming()))
-							.findFirst()
-							.orElseGet(() -> {
-								TimingDTO newTiming = new TimingDTO(difference.getDifferenceTiming(),
-										"Total " + difference.getDifferenceTiming() + " - " + categoryConfig.getName());
-								categoryDTO.addTiming(newTiming);
-								return newTiming;
-							});
+    private static void printHierarchy(List<DifferenceCategory> hierarchy) {
+        for (DifferenceCategory category : hierarchy) {
+            System.out.println("- " + category.differenceCategory() + " (" + category.totalAmount() + ")");
+            for (DifferenceTiming timing : category.differenceTimings()) {
+                System.out.println("  -- " + timing.differenceTiming() + " (" + timing.totalAmount() + ")");
+                for (OtpCode otpCode : timing.otpCodes()) {
+                    System.out.println("    --- " + otpCode.otpCodeName() + " (" + otpCode.totalAmount() + ")");
+                    for (DifferenceNameAmount diff : otpCode.differences()) {
+                        System.out.println("      ---- " + diff.differenceName() + ": " + diff.ytdAmount());
+                    }
+                }
+            }
+        }
+    }
 
-					OTPCodeDTO otpCodeDTO = timingDTO.getOtpCodes().stream()
-							.filter(o -> o.getOtpCodeName().equals(difference.getOtpCode()))
-							.findFirst()
-							.orElseGet(() -> {
-								OTPCodeDTO newOtpCode = new OTPCodeDTO(difference.getOtpCode(),
-										"Description for " + difference.getOtpCode());
-								timingDTO.addOtpCode(newOtpCode);
-								return newOtpCode;
-							});
+    // Record definitions
+    public record DifferenceNameAmount(String differenceName, int ytdAmount) {}
 
-					DifferencesDTO differencesDTO = new DifferencesDTO(difference.getDifferenceName(), difference.getAmount());
-					otpCodeDTO.addDifference(differencesDTO); // Automatically updates the OTP code's total
-					timingDTO.recalculateTotalSumTiming(); // Recalculate total for timing after adding a difference
-				}
+    public record OtpCode(String otpCodeName, int totalAmount, List<DifferenceNameAmount> differences) {}
 
-				categoryDTO.recalculateTotalSumCategory(); // Recalculate total for category after processing all differences
+    public record DifferenceTiming(String differenceTiming, int totalAmount, List<OtpCode> otpCodes) {}
 
-				if (isFirstCategory) {
-					categoryDTO.adjustFirstCategoryTotalSum(ptbi);
-					isFirstCategory = false;
-				} else {
-					categoryDTO.adjustTotalSumCategory(previousCategorySum);
-				}
+    public record DifferenceCategory(String differenceCategory, int totalAmount, List<DifferenceTiming> differenceTimings) {}
 
-				if (hasDifferences || isFirstCategory) {
-					previousCategorySum = categoryDTO.getTotalSumCategory();
-				}
+    public record ProvisionWorkPaperData(
+            String differenceCategory,
+            String differenceTiming,
+            String otpCodeName,
+            String differenceName,
+            int ytdAmount
+    ) {}
 
-				categoryHierarchy.add(categoryDTO);
-			}
+    // Strategy Interface
+    public interface CategoryCalculationStrategy {
+        DifferenceCategory calculateCategory(String categoryName, List<ProvisionWorkPaperData> data, List<DifferenceCategory> currentHierarchy);
+    }
 
-			return categoryHierarchy;
-		}
+    // Default Hierarchy Strategy for GAAP to STAT and STAT to TAX
+    public static class DefaultHierarchyStrategy implements CategoryCalculationStrategy {
+        @Override
+        public DifferenceCategory calculateCategory(String categoryName, List<ProvisionWorkPaperData> data, List<DifferenceCategory> currentHierarchy) {
+            // Step 1: Compute the current category's total
+            int currentCategoryTotal = data.stream().mapToInt(ProvisionWorkPaperData::ytdAmount).sum();
 
-		private double fetchPTBI() {
-			String ptbiUrl = "http://external-api.com/ptbi"; // Replace with actual API URL
-			try {
-				return restTemplate.getForObject(ptbiUrl, Double.class);
-			} catch (Exception e) {
-				e.printStackTrace();
-				return 15.0;
-			}
-		}
+            // Step 2: Sum it with the previous category total (if any)
+            int previousCategoryTotal = currentHierarchy.isEmpty() ? 0 : currentHierarchy.get(currentHierarchy.size() - 1).totalAmount();
 
-		private List<DifferenceInput> fetchDifferences() {
-			String differencesUrl = "http://external-api.com/differences"; // Replace with actual API URL
-			try {
-				DifferenceInput[] differencesArray = restTemplate.getForObject(differencesUrl, DifferenceInput[].class);
-				return differencesArray != null ? Arrays.asList(differencesArray) : new ArrayList<>();
-			} catch (Exception e) {
-				e.printStackTrace();
-				return Arrays.asList(
-						new DifferenceInput("1", "abcd", "Permanent", "Gaap to Stat", "ABCD", 300.0),
-						new DifferenceInput("2", "tuvw", "Permanent", "Stat to Tax", "PQRS", 100.0),
-						new DifferenceInput("3", "pqrs", "Temporary", "Stat to Tax", "ABCD", 200.0)
-				);
-				//return new ArrayList<>();
-			}
-		}
-	}
+            int categoryTotal = previousCategoryTotal + currentCategoryTotal;
 
-	static class DifferencesDTO {
-		private String name;
-		private double amount;
+            // Step 3: Build the hierarchy (timings, otpCodes, differences)
+            List<DifferenceTiming> timings = data.stream()
+                    .collect(Collectors.groupingBy(ProvisionWorkPaperData::differenceTiming))
+                    .entrySet()
+                    .stream()
+                    .map(timingEntry -> {
+                        String timing = timingEntry.getKey();
+                        List<ProvisionWorkPaperData> timingData = timingEntry.getValue();
+                        int timingTotal = timingData.stream().mapToInt(ProvisionWorkPaperData::ytdAmount).sum();
 
-		public DifferencesDTO(String name, double amount) {
-			this.name = name;
-			this.amount = amount;
-		}
+                        List<OtpCode> otpCodes = timingData.stream()
+                                .collect(Collectors.groupingBy(ProvisionWorkPaperData::otpCodeName))
+                                .entrySet()
+                                .stream()
+                                .map(otpEntry -> {
+                                    String otpCode = otpEntry.getKey();
+                                    List<ProvisionWorkPaperData> otpData = otpEntry.getValue();
+                                    int otpTotal = otpData.stream().mapToInt(ProvisionWorkPaperData::ytdAmount).sum();
 
-		public String getName() { return name; }
-		public double getAmount() { return amount; }
-	}
+                                    List<DifferenceNameAmount> differences = otpData.stream()
+                                            .map(pwd -> new DifferenceNameAmount(pwd.differenceName(), pwd.ytdAmount()))
+                                            .toList();
 
-	static class OTPCodeDTO {
-		private String otpCodeName;
-		private String otpCodeDescription;
-		private double totalSumOtpCodes;
-		private List<DifferencesDTO> differences;
+                                    return new OtpCode(otpCode, otpTotal, differences);
+                                })
+                                .toList();
 
-		public OTPCodeDTO(String otpCodeName, String otpCodeDescription) {
-			this.otpCodeName = otpCodeName;
-			this.otpCodeDescription = otpCodeDescription;
-			this.totalSumOtpCodes = 0.0;
-			this.differences = new ArrayList<>();
-		}
+                        return new DifferenceTiming(timing, timingTotal, otpCodes);
+                    })
+                    .toList();
 
-		public void addDifference(DifferencesDTO difference) {
-			this.differences.add(difference);
-			this.totalSumOtpCodes += difference.getAmount();
-		}
+            // Step 4: Return the updated DifferenceCategory with the combined total
+            return new DifferenceCategory(categoryName, categoryTotal, timings);
+        }
+    }
 
-		public String getOtpCodeName() { return otpCodeName; }
-		public String getOtpCodeDescription() { return otpCodeDescription; }
-		public double getTotalSumOtpCodes() { return totalSumOtpCodes; }
-		public List<DifferencesDTO> getDifferences() { return differences; }
-	}
+    // PTBI Strategy (Gets value from a reference table)
+    public static class PtbiStrategy implements CategoryCalculationStrategy {
+        @Override
+        public DifferenceCategory calculateCategory(String categoryName, List<ProvisionWorkPaperData> data, List<DifferenceCategory> currentHierarchy) {
+            int ptbiValue = ReferenceData.REFERENCE_TABLE.getOrDefault("PTBI", 0);
+            return new DifferenceCategory(categoryName, ptbiValue, List.of());
+        }
+    }
 
-	static class TimingDTO {
-		private String timingName;
-		private String timingDescription;
-		private double totalSumTiming;
-		private List<OTPCodeDTO> otpCodes;
+    // Strategy that assigns the total of the GAAP to STAT category to this new category
+    public static class SameAsGaapToStatStrategy implements CategoryCalculationStrategy {
+        @Override
+        public DifferenceCategory calculateCategory(String categoryName, List<ProvisionWorkPaperData> data, List<DifferenceCategory> currentHierarchy) {
+            // Find the previously computed GAAP to STAT category
+            DifferenceCategory gaapToStatCategory = currentHierarchy.stream()
+                    .filter(c -> c.differenceCategory().equals("GAAP to STAT"))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("GAAP to STAT category must be computed first"));
 
-		public TimingDTO(String timingName, String timingDescription) {
-			this.timingName = timingName;
-			this.timingDescription = timingDescription;
-			this.totalSumTiming = 0.0;
-			this.otpCodes = new ArrayList<>();
-		}
+            // Use the same total as GAAP to STAT
+            int categoryTotal = gaapToStatCategory.totalAmount();
 
-		public void addOtpCode(OTPCodeDTO otpCode) {
-			this.otpCodes.add(otpCode);
-			recalculateTotalSumTiming();
-		}
+            // Optionally, you can replicate the structure (timings, otpCodes, differences), or keep it simple
+            return new DifferenceCategory(categoryName, categoryTotal, List.of()); // Empty timings for now
+        }
+    }
 
-		public void recalculateTotalSumTiming() {
-			this.totalSumTiming = otpCodes.stream()
-					.mapToDouble(OTPCodeDTO::getTotalSumOtpCodes)
-					.sum();
-		}
 
-		public String getTimingName() { return timingName; }
-		public String getTimingDescription() { return timingDescription; }
-		public double getTotalSumTiming() { return totalSumTiming; }
-		public List<OTPCodeDTO> getOtpCodes() { return otpCodes; }
-	}
-
-	static class CategoryDTO {
-		private String categoryName;
-		private String categoryDescription;
-		private double totalSumCategory;
-		private List<TimingDTO> timings;
-
-		public CategoryDTO(String categoryName, String categoryDescription) {
-			this.categoryName = categoryName;
-			this.categoryDescription = categoryDescription;
-			this.totalSumCategory = 0.0;
-			this.timings = new ArrayList<>();
-		}
-
-		public void addTiming(TimingDTO timing) {
-			this.timings.add(timing);
-			recalculateTotalSumCategory();
-		}
-
-		public void recalculateTotalSumCategory() {
-			this.totalSumCategory = timings.stream()
-					.mapToDouble(TimingDTO::getTotalSumTiming)
-					.sum();
-		}
-
-		public void adjustFirstCategoryTotalSum(double ptbi) {
-			if (this.totalSumCategory == 0.0) {
-				this.totalSumCategory = ptbi;
-			} else {
-				this.totalSumCategory += ptbi;
-			}
-		}
-
-		/*public void adjustTotalSumCategory(double previousSum) {
-			if (this.totalSumCategory != 0.0) {
-				this.totalSumCategory += previousSum;
-			}
-		}*/
-		public void adjustTotalSumCategory(double previousSum) {
-			this.totalSumCategory += previousSum; // Always add the previous sum
-		}
-
-		public String getCategoryName() { return categoryName; }
-		public String getCategoryDescription() { return categoryDescription; }
-		public double getTotalSumCategory() { return totalSumCategory; }
-		public List<TimingDTO> getTimings() { return timings; }
-	}
-
-	@ConfigurationProperties(prefix = "provision-categories")
-	@Configuration
-	public static class CategoryProperties {
-		private List<CategoryConfig> categories;
-
-		public List<CategoryConfig> getCategories() {
-			return categories;
-		}
-
-		public void setCategories(List<CategoryConfig> categories) {
-			this.categories = categories;
-		}
-	}
-
-	public static class CategoryConfig {
-		private String name;
-		private String description;
-
-		public String getName() { return name; }
-		public void setName(String name) { this.name = name; }
-		public String getDescription() { return description; }
-		public void setDescription(String description) { this.description = description; }
-	}
-
-	static class DifferenceInput {
-		private String differenceId;
-		private String differenceName;
-		private String differenceTiming;
-		private String differenceCategory;
-		private String otpCode;
-		private double amount;
-
-		public DifferenceInput(String differenceId, String differenceName, String differenceTiming, String differenceCategory, String otpCode, double amount) {
-			this.differenceId = differenceId;
-			this.differenceName = differenceName;
-			this.differenceTiming = differenceTiming;
-			this.differenceCategory = differenceCategory;
-			this.otpCode = otpCode;
-			this.amount = amount;
-		}
-
-		public String getDifferenceCategory() { return differenceCategory; }
-		public String getDifferenceTiming() { return differenceTiming; }
-		public String getOtpCode() { return otpCode; }
-		public String getDifferenceName() { return differenceName; }
-		public double getAmount() { return amount; }
-	}
+    // Reference Data for PTBI
+    public static class ReferenceData {
+        public static final Map<String, Integer> REFERENCE_TABLE = Map.of(
+                "PTBI", 5000  // Example PTBI value
+        );
+    }
 }
