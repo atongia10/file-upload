@@ -1,0 +1,339 @@
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.ProblemDetail;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestClient;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@SpringBootApplication
+public class LineItemReportApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(LineItemReportApplication.class, args);
+    }
+}
+
+// Configuration
+@Configuration
+class ReportConfig {
+    @Bean
+    public RestClient restClient() {
+        return RestClient.builder().build();
+    }
+
+    @Bean
+    public ReportService reportService(RestClient restClient) {
+        return new ReportService(restClient, new LineItemCalculationStrategyFactory(restClient));
+    }
+}
+
+// Data Model for Input Table
+record ReportData(String differenceName, String differenceCategory, String differenceTiming, String otpCode, String otpCodeDescription, double ytdAmount) {}
+
+// Report Hierarchy Data Records
+record Category(String categoryName, String categoryDescription, double sumTotal, List<Timing> timings) {}
+record Timing(String timingName, String timingDescription, double sumTotal, List<OTPCode> otpCodes) {}
+record OTPCode(String otpCodeName, String otpCodeDescription, double totalAmount, List<Difference> differences) {}
+record Difference(String differenceName, double amount) {}
+
+// Strategy Interface for Line Item Calculation
+interface LineItemCalculationStrategy {
+    List<Category> calculate(List<ReportData> data, List<Category> previousResult);
+}
+
+// Hierarchical Report Calculation Strategy
+class HierarchicalLineItemCalculation implements LineItemCalculationStrategy {
+    @Override
+    public List<Category> calculate(List<ReportData> inputData, List<Category> previousResult) {
+        Map<String, CategoryBuilder> categoryMap = new HashMap<>();
+        Map<String, List<ReportData>> categoryGroups = groupByCategory(inputData);
+        double previousSumTotal = calculatePreviousSumTotal(previousResult);
+
+        for (Map.Entry<String, List<ReportData>> categoryEntry : categoryGroups.entrySet()) {
+            processCategory(categoryEntry, categoryMap, previousSumTotal);
+            previousSumTotal = categoryMap.get(categoryEntry.getKey()).getSumTotal();
+        }
+
+        return categoryMap.values().stream().map(CategoryBuilder::build).collect(Collectors.toList());
+    }
+
+    private Map<String, List<ReportData>> groupByCategory(List<ReportData> inputData) {
+        return inputData.stream().collect(Collectors.groupingBy(ReportData::differenceCategory));
+    }
+
+    private double calculatePreviousSumTotal(List<Category> previousResult) {
+        return previousResult.stream().mapToDouble(Category::sumTotal).sum();
+    }
+
+    private void processCategory(Map.Entry<String, List<ReportData>> categoryEntry, Map<String, CategoryBuilder> categoryMap, double previousSumTotal) {
+        String categoryName = categoryEntry.getKey();
+        CategoryBuilder categoryBuilder = categoryMap.computeIfAbsent(categoryName, CategoryBuilder::new);
+        List<ReportData> categoryData = categoryEntry.getValue();
+        Map<String, List<ReportData>> timingGroups = groupByTiming(categoryData);
+
+        for (Map.Entry<String, List<ReportData>> timingEntry : timingGroups.entrySet()) {
+            processTiming(timingEntry, categoryBuilder);
+        }
+
+        categoryBuilder.calculateSumTotal();
+        categoryBuilder.updateSumTotal(previousSumTotal);
+    }
+
+    private Map<String, List<ReportData>> groupByTiming(List<ReportData> categoryData) {
+        return categoryData.stream().collect(Collectors.groupingBy(ReportData::differenceTiming));
+    }
+
+    private void processTiming(Map.Entry<String, List<ReportData>> timingEntry, CategoryBuilder categoryBuilder) {
+        String timingName = timingEntry.getKey();
+        TimingBuilder timingBuilder = new TimingBuilder(timingName);
+        List<ReportData> timingData = timingEntry.getValue();
+        Map<String, List<ReportData>> otpCodeGroups = groupByOtpCode(timingData);
+
+        for (Map.Entry<String, List<ReportData>> otpCodeEntry : otpCodeGroups.entrySet()) {
+            processOtpCode(otpCodeEntry, timingBuilder);
+        }
+
+        timingBuilder.calculateSumTotal();
+        categoryBuilder.addTiming(timingBuilder.build());
+    }
+
+    private Map<String, List<ReportData>> groupByOtpCode(List<ReportData> timingData) {
+        return timingData.stream().collect(Collectors.groupingBy(ReportData::otpCode));
+    }
+
+    private void processOtpCode(Map.Entry<String, List<ReportData>> otpCodeEntry, TimingBuilder timingBuilder) {
+        String otpCodeName = otpCodeEntry.getKey();
+        OTPCodeBuilder otpCodeBuilder = new OTPCodeBuilder(otpCodeName);
+        List<ReportData> otpCodeData = otpCodeEntry.getValue();
+
+        for (ReportData data : otpCodeData) {
+            Difference difference = new Difference(data.differenceName(), data.ytdAmount());
+            otpCodeBuilder.addDifference(difference);
+        }
+
+        otpCodeBuilder.calculateTotalAmount();
+        timingBuilder.addOtpCode(otpCodeBuilder.build());
+    }
+}
+
+// PTBI Calculation Strategy
+class PTBICalculationStrategy implements LineItemCalculationStrategy {
+    private final RestClient restClient;
+
+    public PTBICalculationStrategy(RestClient restClient) {
+        this.restClient = restClient;
+    }
+
+    @Override
+    public List<Category> calculate(List<ReportData> inputData, List<Category> previousResult) {
+        List<Category> report = new ArrayList<>();
+
+        // Example: Fetch data from an API to calculate the amount for line item 2
+        Double ptbiAmount = restClient.get()
+                .uri("https://external-api.com/ptbi-amount")
+                .retrieve()
+                .body(Double.class);
+
+        if (ptbiAmount == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PTBI amount not found");
+        }
+
+        Category ptbiCategory = new Category("PTBI", "PTBI Description", ptbiAmount, Collections.emptyList());
+        report.add(ptbiCategory);
+        return report;
+    }
+}
+
+// Custom Calculation Strategy for Line Item 5
+class CustomLineItem5CalculationStrategy implements LineItemCalculationStrategy {
+    @Override
+    public List<Category> calculate(List<ReportData> inputData, List<Category> previousResult) {
+        double totalSumLineItem2 = 0;
+        double totalSumLineItem4 = 0;
+
+        // Find the totals from LineItem2 and LineItem4
+        for (Category category : previousResult) {
+            if (category.categoryName().equals("PTBI")) {
+                totalSumLineItem2 = category.sumTotal();
+            } else if (category.categoryName().equals("Custom LineItem4")) {
+                totalSumLineItem4 = category.sumTotal();
+            }
+        }
+
+        double totalSumLineItem5 = totalSumLineItem2 * totalSumLineItem4;
+
+        Category category = new Category("Custom LineItem5", "Custom LineItem5 Description", totalSumLineItem5, Collections.emptyList());
+        return List.of(category);
+    }
+}
+
+// Factory for Line Item Calculation Strategies
+class LineItemCalculationStrategyFactory {
+    private final RestClient restClient;
+
+    public LineItemCalculationStrategyFactory(RestClient restClient) {
+        this.restClient = restClient;
+    }
+
+    public LineItemCalculationStrategy getStrategy(String lineItemType) {
+        switch (lineItemType) {
+            case "PTBI":
+                return new PTBICalculationStrategy(restClient);
+            case "CUSTOM_5":
+                return new CustomLineItem5CalculationStrategy();
+            case "HIERARCHICAL":
+            default:
+                return new HierarchicalLineItemCalculation();
+        }
+    }
+}
+
+// Report Service
+@Service
+@Transactional(readOnly = true)
+class ReportService {
+    private final RestClient restClient;
+    private final LineItemCalculationStrategyFactory strategyFactory;
+
+    public ReportService(RestClient restClient, LineItemCalculationStrategyFactory strategyFactory) {
+        this.restClient = restClient;
+        this.strategyFactory = strategyFactory;
+    }
+
+    public List<Category> generateReport(List<ReportData> inputData) {
+        List<Category> previousResult = new ArrayList<>();
+
+        List<LineItemDefinition> lineItemSequence = List.of(
+            new LineItemDefinition("LineItem2", "PTBI"),
+            new LineItemDefinition("LineItem1", "HIERARCHICAL"),
+            new LineItemDefinition("LineItem3", "HIERARCHICAL"),
+            new LineItemDefinition("LineItem4", "HIERARCHICAL"),
+            new LineItemDefinition("LineItem5", "CUSTOM_5")
+        );
+
+        for (LineItemDefinition lineItemDef : lineItemSequence) {
+            LineItemCalculationStrategy strategy = strategyFactory.getStrategy(lineItemDef.pattern());
+            previousResult = strategy.calculate(inputData, previousResult);
+        }
+
+        return previousResult;
+    }
+}
+
+// LineItem Definition Record
+record LineItemDefinition(String name, String pattern) {}
+
+// Report Controller
+@RestController
+@RequestMapping("/api/report")
+class ReportController {
+    private final ReportService reportService;
+
+    public ReportController(ReportService reportService) {
+        this.reportService = reportService;
+    }
+
+    @PostMapping("/generate")
+    public List<Category> generateReport(@RequestBody List<ReportData> inputData) {
+        return reportService.generateReport(inputData);
+    }
+}
+
+// Exception Handling
+@ControllerAdvice
+class ReportExceptionHandler {
+
+    @ExceptionHandler(ResponseStatusException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ResponseBody
+    public ProblemDetail handleNotFoundException(ResponseStatusException ex) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getReason());
+        problemDetail.setType(URI.create("https://example.com/problems/not-found"));
+        problemDetail.setTitle("Resource Not Found");
+        problemDetail.setProperty("timestamp", System.currentTimeMillis());
+        return problemDetail;
+    }
+}
+
+// Builders for Category, Timing, OTPCode
+class CategoryBuilder {
+    private final String name;
+    private final List<Timing> timings = new ArrayList<>();
+    private double sumTotal;
+
+    public CategoryBuilder(String name) {
+        this.name = name;
+    }
+
+    public void addTiming(Timing timing) {
+        this.timings.add(timing);
+    }
+
+    public void calculateSumTotal() {
+        this.sumTotal = timings.stream().mapToDouble(Timing::sumTotal).sum();
+    }
+
+    public void updateSumTotal(double previousSumTotal) {
+        this.sumTotal += previousSumTotal;
+    }
+
+    public double getSumTotal() {
+        return this.sumTotal;
+    }
+
+    public Category build() {
+        return new Category(name, "Category Description", sumTotal, timings);
+    }
+}
+
+class TimingBuilder {
+    private final String name;
+    private final List<OTPCode> otpCodes = new ArrayList<>();
+    private double sumTotal;
+
+    public TimingBuilder(String name) {
+        this.name = name;
+    }
+
+    public void addOtpCode(OTPCode otpCode) {
+        this.otpCodes.add(otpCode);
+    }
+
+    public void calculateSumTotal() {
+        this.sumTotal = otpCodes.stream().mapToDouble(OTPCode::totalAmount).sum();
+    }
+
+    public Timing build() {
+        return new Timing(name, "Timing Description", sumTotal, otpCodes);
+    }
+}
+
+class OTPCodeBuilder {
+    private final String name;
+    private final List<Difference> differences = new ArrayList<>();
+    private double totalAmount;
+
+    public OTPCodeBuilder(String name) {
+        this.name = name;
+    }
+
+    public void addDifference(Difference difference) {
+        this.differences.add(difference);
+        this.totalAmount += difference.amount();
+    }
+
+    public void calculateTotalAmount() {
+        // Total amount is already calculated in addDifference
+    }
+
+    public OTPCode build() {
+        return new OTPCode(name, "OTP Code Description", totalAmount, differences);
+    }
+}
