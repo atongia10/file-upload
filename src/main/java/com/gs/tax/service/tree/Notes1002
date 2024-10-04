@@ -1,0 +1,277 @@
+import org.springframework.boot.CommandLineRunner;
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.ProblemDetail;
+import org.springframework.data.repository.CrudRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.client.RestClient;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.Validator;
+import jakarta.validation.Validation;
+import java.net.URI;
+import java.util.Optional;
+
+@SpringBootApplication
+public class HelloUserApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(HelloUserApplication.class, args);
+    }
+}
+
+// User Module Configuration
+@Configuration
+class UserConfig {
+    @Bean
+    CommandLineRunner initData(UserRepository userRepository) {
+        return args -> {
+            userRepository.save(new User(null, "Alice"));
+            userRepository.save(new User(null, "Bob"));
+        };
+    }
+
+    @Bean
+    public Validator validator() {
+        return Validation.buildDefaultValidatorFactory().getValidator();
+    }
+}
+
+// LastName Module Configuration
+@Configuration
+class LastNameConfig {
+    @Bean
+    public RestClient restClient() {
+        return RestClient.builder().build();
+    }
+
+    @Bean
+    public LastNameService lastNameService(RestClient restClient) {
+        return new LastNameService(restClient);
+    }
+}
+
+// Immutable record with validation
+@Validated
+record User(Long id, @NotBlank String name) {}
+
+// User Repository
+interface UserRepository extends CrudRepository<User, Long> {
+    Optional<User> findByName(String name);
+}
+
+// User Service
+@Service
+@Transactional(readOnly = true)
+class UserService {
+    private final UserRepository userRepository;
+
+    public UserService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    public User getUserByName(String name) {
+        return userRepository.findByName(name)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+    }
+}
+
+// User Controller
+@RestController
+@RequestMapping("/api/user")
+class HelloUserController {
+    private final UserService userService;
+
+    public HelloUserController(UserService userService) {
+        this.userService = userService;
+    }
+
+    @GetMapping("/hello/{username}")
+    public String sayHello(@PathVariable @NotBlank String username) {
+        User user = userService.getUserByName(username);
+        return "Hello - " + user.name();
+    }
+}
+
+// LastName Service
+@Service
+@Transactional(readOnly = true)
+class LastNameService {
+    private final RestClient restClient;
+
+    public LastNameService(RestClient restClient) {
+        this.restClient = restClient;
+    }
+
+    public String getLastNameByUsername(String username) {
+        String lastName = restClient.get()
+                .uri("https://external-api.com/lastname/{username}", username)
+                .retrieve()
+                .body(String.class);
+
+        if (lastName == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Last name not found");
+        }
+
+        return lastName;
+    }
+}
+
+// LastName Controller
+@RestController
+@RequestMapping("/api/lastname")
+class LastNameController {
+    private final LastNameService lastNameService;
+
+    public LastNameController(LastNameService lastNameService) {
+        this.lastNameService = lastNameService;
+    }
+
+    @GetMapping("/{username}")
+    public String getLastName(@PathVariable String username) {
+        String lastName = lastNameService.getLastNameByUsername(username);
+        return "Last name for " + username + " is " + lastName;
+    }
+}
+
+// User-Specific Exception Handling
+@ControllerAdvice(assignableTypes = HelloUserController.class)
+class UserExceptionHandler {
+
+    @ExceptionHandler(ResponseStatusException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ResponseBody
+    public ProblemDetail handleUserNotFoundException(ResponseStatusException ex) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getReason());
+        problemDetail.setType(URI.create("https://example.com/problems/user-not-found"));
+        problemDetail.setTitle("User Not Found");
+        problemDetail.setProperty("timestamp", System.currentTimeMillis());
+        return problemDetail;
+    }
+}
+
+// LastName-Specific Exception Handling
+@ControllerAdvice(assignableTypes = LastNameController.class)
+class LastNameExceptionHandler {
+
+    @ExceptionHandler(ResponseStatusException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ResponseBody
+    public ProblemDetail handleLastNameNotFoundException(ResponseStatusException ex) {
+        ProblemDetail problemDetail = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getReason());
+        problemDetail.setType(URI.create("https://example.com/problems/lastname-not-found"));
+        problemDetail.setTitle("Last Name Not Found");
+        problemDetail.setProperty("timestamp", System.currentTimeMillis());
+        return problemDetail;
+    }
+}
+
+// Test Cases for >90% Coverage
+package com.example.hellouser;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.junit4.SpringRunner;
+import org.junit.runner.RunWith;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import org.junit.Rule;
+import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.stubFor;
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.wireMockConfig;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+
+// User Module Tests
+@SpringBootTest
+@AutoConfigureMockMvc
+@RunWith(SpringRunner.class)
+@Import(UserConfig.class)
+class HelloUserApplicationTests {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void contextLoads() {
+    }
+
+    @Test
+    void testSayHelloValidUser() throws Exception {
+        mockMvc.perform(get("/api/user/hello/Alice")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Hello - Alice"));
+    }
+
+    @Test
+    void testSayHelloUserNotFound() throws Exception {
+        mockMvc.perform(get("/api/user/hello/UnknownUser")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> result.getResolvedException() instanceof ResponseStatusException)
+                .andExpect(result -> result.getResolvedException().getMessage().contains("User not found"));
+    }
+
+    @Test
+    void testSayHelloBlankUsername() throws Exception {
+        mockMvc.perform(get("/api/user/hello/")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound());
+    }
+}
+
+// LastName Module Tests
+@SpringBootTest
+@AutoConfigureMockMvc
+@RunWith(SpringRunner.class)
+@Import(LastNameConfig.class)
+class LastNameApplicationTests {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Rule
+    public WireMockRule wireMockRule = new WireMockRule(wireMockConfig().port(8089));
+
+    @Test
+    void testGetLastNameValidUser() throws Exception {
+        // Setup WireMock to mock external API response
+        stubFor(get(WireMock.urlEqualTo("/lastname/Alice"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withBody("Doe")));
+
+        mockMvc.perform(get("/api/lastname/Alice")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk())
+                .andExpect(content().string("Last name for Alice is Doe"));
+    }
+
+    @Test
+    void testGetLastNameUserNotFound() throws Exception {
+        // Setup WireMock to mock external API response for not found
+        stubFor(get(WireMock.urlEqualTo("/lastname/UnknownUser"))
+                .willReturn(aResponse()
+                        .withStatus(404)));
+
+        mockMvc.perform(get("/api/lastname/UnknownUser")
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(result -> result.getResolvedException() instanceof ResponseStatusException)
+                .andExpect(result -> result.getResolvedException().getMessage().contains("Last name not found"));
+    }
+}

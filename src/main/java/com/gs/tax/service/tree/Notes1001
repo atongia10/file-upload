@@ -1,0 +1,46 @@
+public class UDF {
+    -- Approach 1: Flatten arrays into tables and use set-based operations
+    WITH arrays AS (
+            SELECT
+                    ARRAY_CONSTRUCT(1, 2, 3) AS arr1,
+    ARRAY_CONSTRUCT(1, 2, 3, 4, 5) AS arr2
+),
+    flattened_arr1 AS (
+            SELECT VALUE AS element FROM arrays, TABLE(FLATTEN(arr1))
+            ),
+    flattened_arr2 AS (
+            SELECT VALUE AS element FROM arrays, TABLE(FLATTEN(arr2))
+            )
+    SELECT
+            CASE
+    WHEN (SELECT COUNT(*) FROM flattened_arr1) = 0 THEN TRUE
+    WHEN (SELECT COUNT(*) FROM flattened_arr2) = 0 AND (SELECT COUNT(*) FROM flattened_arr1) > 0 THEN FALSE
+    WHEN (SELECT COUNT(*) FROM flattened_arr1) > (SELECT COUNT(*) FROM flattened_arr2) THEN FALSE
+    WHEN (SELECT COUNT(*) FROM flattened_arr1 WHERE element NOT IN (SELECT element FROM flattened_arr2)) = 0 THEN TRUE
+    ELSE FALSE
+    END AS contains_all_elements;
+
+-- Approach 4: Use JavaScript UDF to optimize membership testing with hash sets
+    CREATE OR REPLACE FUNCTION array_contains_all_elements(arr1 ARRAY, arr2 ARRAY)
+    RETURNS BOOLEAN
+    LANGUAGE JAVASCRIPT
+    AS $$
+    // Convert Snowflake arrays to JavaScript arrays
+  const array1 = arr1;
+  const array2 = arr2;
+
+    // Convert array2 to a Set for faster lookup
+  const set2 = new Set(array2);
+
+    // Check if all elements of array1 are present in set2
+  for (let i = 0; i < array1.length; i++) {
+        if (!set2.has(array1[i])) {
+            return false;
+        }
+    }
+  return true;
+    $$;
+
+-- Example usage for JavaScript UDF
+    SELECT array_contains_all_elements(ARRAY_CONSTRUCT(1, 2, 3), ARRAY_CONSTRUCT(1, 2, 3, 4, 5));
+}
