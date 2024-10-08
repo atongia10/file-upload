@@ -1,0 +1,148 @@
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+public class ReportingApplication {
+
+    public static void main(String[] args) {
+        // Sample Input Data
+        List<InputData> inputData = List.of(
+                new InputData("GAAP to Stat", "Permanent", "OTPCode1", "Meals and Entertainment Limitations", "Meals and Entertainment", new BigDecimal("500")),
+                new InputData("Stat to Tax", "Temporary", "OTPCode2", "Depreciation Adjustment", "Depreciation", new BigDecimal("1000")),
+                new InputData("Net Operating Loss", "Permanent", "OTPCode3", "NOL Carryforward", "Net Operating Losses", new BigDecimal("2000"))
+                // Add more sample data here
+        );
+
+        // Sample Reporting Line Items Data
+        List<ReportingLineItem> lineItems = List.of(
+                new ReportingLineItem(1, 1, "GAAP to Stat", "GAAP to Stat", 1, "HierarchyStrategy"),
+                new ReportingLineItem(2, 1, "Net Operating Loss", "Net Operating Loss", 2, "NOLHierarchyStrategy"),
+                new ReportingLineItem(3, 1, "PTBI", "Pre Tax Book Income", 3, "PTBIHierarchyStrategy"),
+                new ReportingLineItem(4, 1, "Default", "Default Category", 4, "DefaultStrategy")
+        );
+
+        // Generate Provision Report
+        List<Category> provisionReport = generateProvisionReport(inputData, lineItems);
+        System.out.println(provisionReport);
+    }
+
+    public static List<Category> generateProvisionReport(List<InputData> inputData, List<ReportingLineItem> lineItems) {
+        // Group by Category Name
+        Map<String, List<InputData>> groupedByCategory = inputData.stream()
+                .collect(Collectors.groupingBy(InputData::categoryName));
+
+        List<Category> categories = new ArrayList<>();
+
+        // Sort line items by sequence and process each line item
+        lineItems.stream()
+                .sorted(Comparator.comparingInt(ReportingLineItem::lineItemSeq))
+                .forEach(lineItem -> {
+                    String categoryName = lineItem.lineItemName();
+                    List<InputData> categoryData = groupedByCategory.get(categoryName);
+
+                    Category category;
+                    switch (lineItem.strategyType()) {
+                        case "HierarchyStrategy" -> category = HierarchyStrategy.apply(categoryName, categoryData);
+                        case "NOLHierarchyStrategy" -> category = NOLHierarchyStrategy.apply(categoryName, categoryData, categories);
+                        case "PTBIHierarchyStrategy" -> category = PTBIHierarchyStrategy.apply(categoryName);
+                        case "DefaultStrategy" -> category = DefaultStrategy.apply(categoryName, categories);
+                        default -> category = DefaultStrategy.apply(categoryName, categories);
+                    }
+                    categories.add(category);
+                });
+
+        return categories;
+    }
+
+    record InputData(String categoryName, String timingName, String otpCodeName, String otpCodeDescription, String differenceName, BigDecimal amount) {}
+
+    record ReportingLineItem(int reportingLineItemId, int reportId, String lineItemName, String lineItemDescription, int lineItemSeq, String strategyType) {}
+
+    record Category(String name, String description, BigDecimal totalSum, List<Timing> timings) {}
+
+    record Timing(String name, String description, BigDecimal totalSum, List<OTPCode> otpCodes) {}
+
+    record OTPCode(String name, String description, BigDecimal totalSum, List<Difference> differences) {}
+
+    record Difference(String name, BigDecimal amount) {}
+
+    // Strategy Interfaces
+    interface HierarchyStrategy {
+        static Category apply(String categoryName, List<InputData> inputData) {
+            List<Timing> timings = inputData.stream()
+                    .collect(Collectors.groupingBy(InputData::timingName))
+                    .entrySet().stream()
+                    .map(entry -> {
+                        String timingName = entry.getKey();
+                        List<InputData> timingData = entry.getValue();
+
+                        List<OTPCode> otpCodes = timingData.stream()
+                                .collect(Collectors.groupingBy(InputData::otpCodeName))
+                                .entrySet().stream()
+                                .map(otpEntry -> {
+                                    String otpCodeName = otpEntry.getKey();
+                                    List<InputData> otpData = otpEntry.getValue();
+
+                                    List<Difference> differences = otpData.stream()
+                                            .map(d -> new Difference(d.differenceName(), d.amount()))
+                                            .collect(Collectors.toList());
+
+                                    BigDecimal otpTotalSum = differences.stream()
+                                            .map(Difference::amount)
+                                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                                    return new OTPCode(otpCodeName, otpData.get(0).otpCodeDescription(), otpTotalSum, differences);
+                                })
+                                .collect(Collectors.toList());
+
+                        BigDecimal timingTotalSum = otpCodes.stream()
+                                .map(OTPCode::totalSum)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                        return new Timing(timingName, timingName, timingTotalSum, otpCodes);
+                    })
+                    .collect(Collectors.toList());
+
+            BigDecimal categoryTotalSum = timings.stream()
+                    .map(Timing::totalSum)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            return new Category(categoryName, categoryName, categoryTotalSum, timings);
+        }
+    }
+
+    interface NOLHierarchyStrategy {
+        static Category apply(String categoryName, List<InputData> inputData, List<Category> previousCategories) {
+            BigDecimal previousTotal = previousCategories.stream()
+                    .map(Category::totalSum)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            List<OTPCode> otpCodes = inputData.stream()
+                    .map(d -> new OTPCode(d.otpCodeName(), d.otpCodeDescription(), d.amount(),
+                            List.of(new Difference(d.differenceName(), d.amount()))))
+                    .collect(Collectors.toList());
+
+            BigDecimal totalSum = previousTotal.add(otpCodes.stream()
+                    .map(OTPCode::totalSum)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add));
+
+            return new Category(categoryName, categoryName, totalSum, null);
+        }
+    }
+
+    interface PTBIHierarchyStrategy {
+        static Category apply(String categoryName) {
+            return new Category(categoryName, categoryName, new BigDecimal("100"), null);
+        }
+    }
+
+    interface DefaultStrategy {
+        static Category apply(String categoryName, List<Category> previousCategories) {
+            BigDecimal previousTotal = previousCategories.isEmpty() ? BigDecimal.ZERO : previousCategories.get(previousCategories.size() - 1).totalSum();
+            return new Category(categoryName, categoryName, previousTotal, null);
+        }
+    }
+}
