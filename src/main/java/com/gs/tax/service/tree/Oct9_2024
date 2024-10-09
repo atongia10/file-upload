@@ -1,0 +1,209 @@
+package com.example.reporting;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Map;
+
+@SpringBootApplication
+public class ReportingApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ReportingApplication.class, args);
+    }
+}
+
+// Define a common interface for all reports
+interface Report {
+    void generateReport();
+}
+
+// Interface for Data Retrieval
+interface DataRetrievable {
+    DataRetrievalStrategy getDataRetrievalStrategy();
+}
+
+// Interface for Line Item Calculations
+interface Calculatable {
+    List<LineItemCalculationCommand> getCalculationCommands();
+}
+
+// Report Service to handle report generation
+@Service
+class ReportService {
+    private final ReportFactory reportFactory;
+
+    @Autowired
+    public ReportService(ReportFactory reportFactory) {
+        this.reportFactory = reportFactory;
+    }
+
+    public void generateReport(ReportType type) {
+        Report report = reportFactory.createReport(type);
+        report.generateReport();
+    }
+}
+
+// Implement the Factory Pattern for Report generation
+@Component
+class ReportFactory {
+    private final LineItemCalculatorRegistry registry;
+    private final DataRetrievalStrategy databaseDataRetrieval;
+    private final DataRetrievalStrategy apiFetchDataRetrieval;
+
+    @Autowired
+    public ReportFactory(LineItemCalculatorRegistry registry,
+                         DataRetrievalStrategy databaseDataRetrieval,
+                         DataRetrievalStrategy apiFetchDataRetrieval) {
+        this.registry = registry;
+        this.databaseDataRetrieval = databaseDataRetrieval;
+        this.apiFetchDataRetrieval = apiFetchDataRetrieval;
+    }
+
+    public Report createReport(ReportType type) {
+        return switch (type) {
+            case PROVISION -> new ProvisionReport(databaseDataRetrieval, List.of(registry.getCalculator("DEFAULT")));
+            case COMPLIANCE -> new ComplianceReport(apiFetchDataRetrieval, List.of(registry.getCalculator("DEFAULT")));
+            case RETURN_TO_PROVISION -> new ReturnToProvisionReport(databaseDataRetrieval, List.of(registry.getCalculator("DEFAULT")));
+        };
+    }
+}
+
+// Enum for different Report types
+enum ReportType {
+    PROVISION,
+    COMPLIANCE,
+    RETURN_TO_PROVISION
+}
+
+// Example implementation of different types of reports
+class ProvisionReport implements Report {
+    private final DataRetrievable dataRetrievable;
+    private final Calculatable calculatable;
+
+    public ProvisionReport(DataRetrievable dataRetrievable, Calculatable calculatable) {
+        this.dataRetrievable = dataRetrievable;
+        this.calculatable = calculatable;
+    }
+
+    @Override
+    public void generateReport() {
+        System.out.println("Generating Provision Report...");
+        Map<String, Object> data = dataRetrievable.getDataRetrievalStrategy().retrieveData();
+        for (LineItemCalculationCommand command : calculatable.getCalculationCommands()) {
+            double result = command.execute(data);
+            System.out.println("Calculation result: " + result);
+        }
+        // Placeholder for actual generation logic
+    }
+}
+
+class ComplianceReport implements Report {
+    private final DataRetrievable dataRetrievable;
+    private final Calculatable calculatable;
+
+    public ComplianceReport(DataRetrievable dataRetrievable, Calculatable calculatable) {
+        this.dataRetrievable = dataRetrievable;
+        this.calculatable = calculatable;
+    }
+
+    @Override
+    public void generateReport() {
+        System.out.println("Generating Compliance Report...");
+        Map<String, Object> data = dataRetrievable.getDataRetrievalStrategy().retrieveData();
+        for (LineItemCalculationCommand command : calculatable.getCalculationCommands()) {
+            double result = command.execute(data);
+            System.out.println("Calculation result: " + result);
+        }
+        // Placeholder for actual generation logic
+    }
+}
+
+class ReturnToProvisionReport implements Report {
+    private final DataRetrievable dataRetrievable;
+    private final Calculatable calculatable;
+
+    public ReturnToProvisionReport(DataRetrievable dataRetrievable, Calculatable calculatable) {
+        this.dataRetrievable = dataRetrievable;
+        this.calculatable = calculatable;
+    }
+
+    @Override
+    public void generateReport() {
+        System.out.println("Generating Return to Provision Report...");
+        Map<String, Object> data = dataRetrievable.getDataRetrievalStrategy().retrieveData();
+        for (LineItemCalculationCommand command : calculatable.getCalculationCommands()) {
+            double result = command.execute(data);
+            System.out.println("Calculation result: " + result);
+        }
+        // Placeholder for actual generation logic
+    }
+}
+
+// Strategy Pattern for data retrieval
+interface DataRetrievalStrategy {
+    Map<String, Object> retrieveData();
+}
+
+@Component("databaseDataRetrieval")
+class DatabaseDataRetrieval implements DataRetrievalStrategy {
+    @Override
+    public Map<String, Object> retrieveData() {
+        System.out.println("Retrieving data from the database...");
+        return Map.of(); // Placeholder for actual data retrieval
+    }
+}
+
+@Component("apiFetchDataRetrieval")
+class APIFetchDataRetrieval implements DataRetrievalStrategy {
+    @Override
+    public Map<String, Object> retrieveData() {
+        System.out.println("Retrieving data from an external API...");
+        return Map.of(); // Placeholder for actual data retrieval
+    }
+}
+
+// Command Pattern for report line item calculation
+interface LineItemCalculationCommand {
+    double execute(Map<String, Object> data);
+}
+
+@Component
+class DefaultLineItemCalculation implements LineItemCalculationCommand {
+    @Override
+    public double execute(Map<String, Object> data) {
+        // Placeholder logic for default calculation
+        return 0.0;
+    }
+}
+
+// Registry Pattern for line item calculations
+@Component
+class LineItemCalculatorRegistry {
+    private final Map<String, LineItemCalculationCommand> registry;
+
+    @Autowired
+    public LineItemCalculatorRegistry(DefaultLineItemCalculation defaultLineItemCalculation) {
+        registry = Map.of(
+            "DEFAULT", defaultLineItemCalculation
+            // Additional commands can be registered here
+        );
+    }
+
+    public LineItemCalculationCommand getCalculator(String type) {
+        return registry.getOrDefault(type, new DefaultLineItemCalculation());
+    }
+}
+
+@Configuration
+class ReportingConfiguration {
+    @Bean
+    public ReportService reportService(ReportFactory reportFactory) {
+        return new ReportService(reportFactory);
+    }
+}
