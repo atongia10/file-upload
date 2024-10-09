@@ -1,0 +1,209 @@
+package com.example.reporting;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+// Model Records with hide attribute
+public record Difference(
+    String differenceName,
+    BigDecimal amount,
+    boolean hide // Hide attribute
+) {}
+
+public record OTPCode(
+    String name,
+    String description,
+    BigDecimal totalSum,
+    List<Difference> differences,
+    boolean hide // Hide attribute
+) {}
+
+public record Timing(
+    String name,
+    String description,
+    BigDecimal totalSum,
+    List<OTPCode> opCodes,
+    boolean hide // Hide attribute
+) {}
+
+public record Category(
+    String name,
+    String description,
+    BigDecimal totalSum,
+    List<Timing> timings,
+    boolean hide // Hide attribute
+) {}
+
+// Computation Strategy Interface
+interface ComputationStrategy {
+    Category compute();
+}
+
+// HierarchyComputationStrategy Implementation
+class HierarchyComputationStrategy implements ComputationStrategy {
+    @Override
+    public Category compute() {
+        System.out.println("Computing using Hierarchy Strategy...");
+
+        // Create mock data (some records with hide set to true)
+        List<Difference> differences1 = List.of(
+            new Difference("Difference H1", BigDecimal.valueOf(100), false),
+            new Difference("Difference H2", BigDecimal.valueOf(200), true)
+        );
+        List<Difference> differences2 = List.of(
+            new Difference("Difference H3", BigDecimal.valueOf(300), false),
+            new Difference("Difference H4", BigDecimal.valueOf(400), false)
+        );
+
+        List<OTPCode> otpCodes1 = List.of(
+            new OTPCode("OTPCode H1", "OTPCode H1", BigDecimal.ZERO, differences1, false),
+            new OTPCode("OTPCode H2", "OTPCode H2", BigDecimal.ZERO, differences2, true)
+        );
+
+        List<OTPCode> otpCodes2 = List.of(
+            new OTPCode("OTPCode H3", "OTPCode H3", BigDecimal.ZERO, differences1, false),
+            new OTPCode("OTPCode H4", "OTPCode H4", BigDecimal.ZERO, differences2, false)
+        );
+
+        List<Timing> timings = List.of(
+            new Timing("Timing H1", "Timing H1", BigDecimal.ZERO, otpCodes1, false),
+            new Timing("Timing H2", "Timing H2", BigDecimal.ZERO, otpCodes2, false)
+        );
+
+        Category category = new Category("Category H1", "Category H1", BigDecimal.ZERO, timings, false);
+
+        // Recursively compute the total sum
+        category = computeCategoryTotals(category);
+
+        return category;
+    }
+
+    private Category computeCategoryTotals(Category category) {
+        BigDecimal totalSum = BigDecimal.ZERO;
+        for (Timing timing : category.timings()) {
+            timing = computeTimingTotals(timing);
+            totalSum = totalSum.add(timing.totalSum());
+        }
+        return new Category(category.name(), category.description(), totalSum, category.timings(), category.hide());
+    }
+
+    private Timing computeTimingTotals(Timing timing) {
+        BigDecimal totalSum = BigDecimal.ZERO;
+        for (OTPCode otpCode : timing.opCodes()) {
+            otpCode = computeOtpCodeTotals(otpCode);
+            totalSum = totalSum.add(otpCode.totalSum());
+        }
+        return new Timing(timing.name(), timing.description(), totalSum, timing.opCodes(), timing.hide());
+    }
+
+    private OTPCode computeOtpCodeTotals(OTPCode otpCode) {
+        BigDecimal totalSum = BigDecimal.ZERO;
+        for (Difference difference : otpCode.differences()) {
+            if (!difference.hide()) {
+                totalSum = totalSum.add(difference.amount());
+            }
+        }
+        return new OTPCode(otpCode.name(), otpCode.description(), totalSum, otpCode.differences(), otpCode.hide());
+    }
+}
+
+// Data Fetcher Interface
+interface DataFetcher {
+    Category fetchData();
+}
+
+// Computation Context
+class ComputationContext {
+    private ComputationStrategy computationStrategy;
+
+    public void setComputationStrategy(ComputationStrategy computationStrategy) {
+        this.computationStrategy = computationStrategy;
+    }
+
+    public Category computeCategory() {
+        return computationStrategy.compute();
+    }
+}
+
+// Report Interface
+interface Report {
+    void generate();
+}
+
+// PDF Report Implementation
+class PDFReport implements Report {
+    private final DataFetcher dataFetcher;
+    private final ComputationContext computationContext;
+
+    public PDFReport(DataFetcher dataFetcher) {
+        this.dataFetcher = dataFetcher;
+        this.computationContext = new ComputationContext();
+    }
+
+    @Override
+    public void generate() {
+        List<Category> categories = List.of(computationContext.computeCategory());
+
+        // 1st Record using Hierarchy Strategy
+        computationContext.setComputationStrategy(new HierarchyComputationStrategy());
+        Category hierarchyCategory = computationContext.computeCategory();
+        categories = List.of(hierarchyCategory);
+
+        // Print the computed categories
+        for (Category category : categories) {
+            printCategory(category);
+        }
+    }
+
+    private void printCategory(Category category) {
+        if (category.hide()) return;
+        System.out.println("Category: " + category.name() + " | Total: " + category.totalSum());
+        for (Timing timing : category.timings()) {
+            if (timing.hide()) continue;
+            System.out.println("  Timing: " + timing.name() + " | Total: " + timing.totalSum());
+            for (OTPCode otpCode : timing.opCodes()) {
+                if (otpCode.hide()) continue;
+                System.out.println("    OTPCode: " + otpCode.name() + " | Total: " + otpCode.totalSum());
+                for (Difference difference : otpCode.differences()) {
+                    if (difference.hide()) continue;
+                    System.out.println("      Difference: " + difference.differenceName() + " | Amount: " + difference.amount());
+                }
+            }
+        }
+    }
+}
+
+// Report Generator
+class ReportGenerator {
+    public void generateReport(String reportType) {
+        Report report = ReportFactory.createReport(reportType);
+        report.generate();
+    }
+}
+
+// ReportFactory to Create Reports
+class ReportFactory {
+    public static Report createReport(String type) {
+        return switch (type.toLowerCase()) {
+            case "pdf" -> new PDFReport(new PDFReportDataFetcher());
+            default -> throw new IllegalArgumentException("Unknown report type: " + type);
+        };
+    }
+}
+
+// Mock data fetcher
+class PDFReportDataFetcher implements DataFetcher {
+    @Override
+    public Category fetchData() {
+        // Mock data fetch logic
+        return null;
+    }
+}
+
+// Main Application
+public class ReportingApplication {
+    public static void main(String[] args) {
+        ReportGenerator generator = new ReportGenerator();
+        generator.generateReport("pdf");
+    }
+}
