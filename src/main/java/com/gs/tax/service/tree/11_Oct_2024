@@ -1,0 +1,260 @@
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
+// Domain Models
+public record Category(
+    String categoryName,
+    String categoryDescription,
+    double totalSum,
+    List<Timing> timings
+) {
+    public record Timing(
+        String timingName,
+        String timingDescription,
+        double totalSum,
+        List<OTPCode> otpCodes
+    ) {
+        public record OTPCode(
+            String otpCodeName,
+            String otpCodeDescription,
+            double totalSum,
+            List<Difference> differences
+        ) {
+            public record Difference(
+                String differenceName,
+                double amount
+            ) {}
+        }
+    }
+}
+
+public record DifferenceData(String category, String timing, String otpCode, String otpCodeDescription, String differenceName, double amount) {}
+public record ProvisionWorkPaperInput(String jurisdictionName, String obligationName, String periodName, String entityId) {}
+
+// Controller
+@RestController
+@RequestMapping("/api/provision-workpaper")
+class ProvisionWorkPaperController {
+
+    private final ProvisionWorkPaperService workPaperService;
+
+    @Autowired
+    public ProvisionWorkPaperController(ProvisionWorkPaperService workPaperService) {
+        this.workPaperService = workPaperService;
+    }
+
+    @GetMapping("/generate")
+    public ResponseEntity<List<Category>> generateWorkPaper(
+            @RequestParam String jurisdictionName,
+            @RequestParam String obligationName,
+            @RequestParam String periodName,
+            @RequestParam String entityId) {
+        ProvisionWorkPaperInput input = new ProvisionWorkPaperInput(jurisdictionName, obligationName, periodName, entityId);
+        List<Category> workPaper = workPaperService.generateProvisionWorkPaper(input);
+        return ResponseEntity.ok(workPaper);
+    }
+}
+
+// Service Layer
+@Service
+class ProvisionWorkPaperService {
+
+    private final ExternalDataClient externalDataClient;
+    private final CategoryCalculationFactory categoryCalculationFactory;
+
+    @Autowired
+    public ProvisionWorkPaperService(ExternalDataClient externalDataClient, CategoryCalculationFactory categoryCalculationFactory) {
+        this.externalDataClient = externalDataClient;
+        this.categoryCalculationFactory = categoryCalculationFactory;
+    }
+
+    public List<Category> generateProvisionWorkPaper(ProvisionWorkPaperInput input) {
+        List<DifferenceData> rawData = externalDataClient.fetchData(input);
+
+        // Group by Category
+        Map<String, List<DifferenceData>> groupedByCategory = rawData.stream()
+                .collect(Collectors.groupingBy(DifferenceData::category));
+
+        // Generate each category using respective strategy, accumulating results
+        List<Category> categories = new ArrayList<>();
+        for (Map.Entry<String, List<DifferenceData>> entry : groupedByCategory.entrySet()) {
+            String categoryName = entry.getKey();
+            List<DifferenceData> categoryData = entry.getValue();
+
+            CategoryCalculationStrategy strategy = categoryCalculationFactory.getStrategy(categoryName);
+            Category category = strategy.calculate(categoryData, categories, input);
+            categories.add(category);
+        }
+
+        // Handle categories that do not appear in the input data
+        if (!groupedByCategory.containsKey("PTBI")) {
+            CategoryCalculationStrategy ptbiStrategy = categoryCalculationFactory.getStrategy("PTBI");
+            Category ptbiCategory = ptbiStrategy.calculate(Collections.emptyList(), categories, input);
+            categories.add(ptbiCategory);
+        }
+
+        return categories;
+    }
+}
+
+// External Data Client
+@Component
+class ExternalDataClient {
+
+    public List<DifferenceData> fetchData(ProvisionWorkPaperInput input) {
+        // Simulate external API call. In a real implementation, this would use RestTemplate/WebClient.
+        return List.of(
+                new DifferenceData("GAAP to Stat", "Permanent", "OTPCode1", "Meals and Entertainment Limitations", "Meals and Entertainment", 500.0),
+                new DifferenceData("Stat to Tax", "Temporary", "OTPCode2", "Depreciation Adjustment", "Depreciation", 1000.0),
+                new DifferenceData("Net Operating Loss", "Permanent", "OTPCode3", "NOL Carryforward", "Net Operating Losses", 2000.0)
+                // Additional mocked data here...
+        );
+    }
+
+    public double fetchPTBIValue(ProvisionWorkPaperInput input) {
+        // Simulate external API call to fetch PTBI value. In a real implementation, this would use RestTemplate/WebClient.
+        return 3000.0;
+    }
+}
+
+// Category Calculation Strategy Interface
+interface CategoryCalculationStrategy {
+    Category calculate(List<DifferenceData> differenceData, List<Category> existingCategories);
+    default Category calculate(List<DifferenceData> differenceData, List<Category> existingCategories, ProvisionWorkPaperInput input) {
+        return calculate(differenceData, existingCategories);
+    }
+}
+
+// Hierarchy Calculation Strategy Implementation
+@Component
+class HierarchyCalculationStrategy implements CategoryCalculationStrategy {
+
+    @Override
+    public Category calculate(List<DifferenceData> differenceData, List<Category> existingCategories) {
+        // Group data by Timing
+        Map<String, List<DifferenceData>> groupedByTiming = differenceData.stream()
+                .collect(Collectors.groupingBy(DifferenceData::timing));
+
+        List<Category.Timing> timings = new ArrayList<>();
+
+        // For each Timing, create a Timing object with its OTP Codes
+        for (Map.Entry<String, List<DifferenceData>> entry : groupedByTiming.entrySet()) {
+            String timingName = entry.getKey();
+            List<DifferenceData> timingData = entry.getValue();
+
+            // Group data by OTP Code within each Timing
+            Map<String, List<DifferenceData>> groupedByOTPCode = timingData.stream()
+                    .collect(Collectors.groupingBy(DifferenceData::otpCode));
+
+            List<Category.Timing.OTPCode> otpCodes = new ArrayList<>();
+
+            // For each OTP Code, create an OTPCode object with its Differences
+            for (Map.Entry<String, List<DifferenceData>> otpEntry : groupedByOTPCode.entrySet()) {
+                String otpCodeName = otpEntry.getKey();
+                List<DifferenceData> otpCodeData = otpEntry.getValue();
+
+                // Create a list of Differences
+                List<Category.Timing.OTPCode.Difference> differences = otpCodeData.stream()
+                        .map(data -> new Category.Timing.OTPCode.Difference(data.differenceName(), data.amount()))
+                        .collect(Collectors.toList());
+
+                // Calculate the totalSum for the OTPCode
+                double otpCodeTotalSum = differences.stream()
+                        .mapToDouble(Category.Timing.OTPCode.Difference::amount)
+                        .sum();
+
+                // Create OTPCode object
+                Category.Timing.OTPCode otpCode = new Category.Timing.OTPCode(otpCodeName, otpCodeData.get(0).otpCodeDescription(), otpCodeTotalSum, differences);
+                otpCodes.add(otpCode);
+            }
+
+            // Calculate the totalSum for the Timing (sum of all OTPCode totalSums)
+            double timingTotalSum = otpCodes.stream()
+                    .mapToDouble(Category.Timing.OTPCode::totalSum)
+                    .sum();
+
+            // Create Timing object
+            Category.Timing timing = new Category.Timing(timingName, timingName, timingTotalSum, otpCodes);
+            timings.add(timing);
+        }
+
+        // Calculate the totalSum for the Category (sum of all Timing totalSums)
+        double categoryTotalSum = timings.stream()
+                .mapToDouble(Category.Timing::totalSum)
+                .sum();
+
+        // Create and return the Category object
+        return new Category(differenceData.get(0).category(), differenceData.get(0).category(), categoryTotalSum, timings);
+    }
+}
+
+// Previous Category Total Sum Strategy Implementation
+@Component
+class PreviousCategoryTotalSumStrategy implements CategoryCalculationStrategy {
+
+    @Override
+    public Category calculate(List<DifferenceData> differenceData, List<Category> existingCategories) {
+        // Calculate the totalSum for the current category
+        double currentCategoryTotalSum = differenceData.stream()
+                .mapToDouble(DifferenceData::amount)
+                .sum();
+
+        // Get the previous category totalSum if it exists
+        double previousCategoryTotalSum = existingCategories.isEmpty() ? 0 : existingCategories.get(existingCategories.size() - 1).totalSum();
+
+        // Add the previous category totalSum to the current category totalSum
+        double finalTotalSum = currentCategoryTotalSum + previousCategoryTotalSum;
+
+        // Create and return the Category object without the rest of the hierarchy
+        return new Category(differenceData.get(0).category(), differenceData.get(0).category(), finalTotalSum, Collections.emptyList());
+    }
+}
+
+// PTBI Calculation Strategy Implementation
+@Component
+class PTBICalculationStrategy implements CategoryCalculationStrategy {
+
+    private final ExternalDataClient externalDataClient;
+
+    @Autowired
+    public PTBICalculationStrategy(ExternalDataClient externalDataClient) {
+        this.externalDataClient = externalDataClient;
+    }
+
+    @Override
+    public Category calculate(List<DifferenceData> differenceData, List<Category> existingCategories, ProvisionWorkPaperInput input) {
+        // Fetch the PTBI value from the external data client
+        double ptbiValue = externalDataClient.fetchPTBIValue(input);
+
+        // Create and return the Category object without the rest of the hierarchy
+        return new Category("PTBI", "PTBI", ptbiValue, Collections.emptyList());
+    }
+}
+
+// Factory for Category Calculation Strategies
+@Component
+class CategoryCalculationFactory {
+
+    private final Map<String, CategoryCalculationStrategy> strategies;
+
+    @Autowired
+    public CategoryCalculationFactory(List<CategoryCalculationStrategy> strategyList) {
+        // Automatically create a map of strategies based on class type
+        this.strategies = strategyList.stream()
+                .collect(Collectors.toMap(strategy -> strategy.getClass().getSimpleName().replace("CalculationStrategy", ""), Function.identity()));
+    }
+
+    public CategoryCalculationStrategy getStrategy(String categoryName) {
+        return strategies.getOrDefault(categoryName, new HierarchyCalculationStrategy());
+    }
+}
