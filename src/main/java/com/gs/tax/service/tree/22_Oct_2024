@@ -1,0 +1,233 @@
+package com.gs.tax;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@SpringBootApplication
+public class ReportingApplication {
+	public static void main(String[] args) {
+		SpringApplication.run(ReportingApplication.class, args);
+	}
+
+	@Bean
+	public ReportRegistry reportRegistry() {
+		ReportRegistry registry = new ReportRegistry();
+		registry.register(ReportType.PROVISION, new ProvisionReportGenerator());
+		registry.register(ReportType.COMPLIANCE, new ComplianceReportGenerator());
+		return registry;
+	}
+}
+
+// Models
+record StagingInput(String differenceName, String differenceTiming, BigDecimal amount) {}
+
+record ProvisionReportStagingInput(String differenceName, String differenceTiming, BigDecimal amount, String differenceCategory) {}
+
+record ProvisionReportOutput(String strategyName, BigDecimal totalAmount) {}
+
+record ComplianceReportOutput(String complianceCategory, BigDecimal complianceAmount) {}
+
+// Strategy Interface
+interface ReportStrategy<T, I> {
+	List<T> apply(List<I> inputs, List<T> existingOutputs);
+
+	List<I> filterInput(List<I> inputs);
+}
+
+// Strategies for Provision Report
+@Service
+class PTBIStrategy implements ReportStrategy<ProvisionReportOutput, ProvisionReportStagingInput> {
+	@Override
+	public List<ProvisionReportOutput> apply(List<ProvisionReportStagingInput> inputs, List<ProvisionReportOutput> existingOutputs) {
+		BigDecimal total = inputs.stream()
+				.map(ProvisionReportStagingInput::amount)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+		existingOutputs.add(new ProvisionReportOutput("PTBI", total));
+		return existingOutputs;
+	}
+
+	@Override
+	public List<ProvisionReportStagingInput> filterInput(List<ProvisionReportStagingInput> inputs) {
+		return inputs;
+	}
+}
+
+@Service
+class ABCStrategy implements ReportStrategy<ProvisionReportOutput, ProvisionReportStagingInput> {
+	@Override
+	public List<ProvisionReportOutput> apply(List<ProvisionReportStagingInput> inputs, List<ProvisionReportOutput> existingOutputs) {
+		BigDecimal totalABC = inputs.stream()
+				.filter(input -> "ABC".equals(input.differenceTiming()))
+				.map(ProvisionReportStagingInput::amount)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+		existingOutputs.add(new ProvisionReportOutput("ABC", totalABC));
+		return existingOutputs;
+	}
+
+	@Override
+	public List<ProvisionReportStagingInput> filterInput(List<ProvisionReportStagingInput> inputs) {
+		return inputs.stream()
+				.filter(input -> "ABC".equals(input.differenceTiming()))
+				.collect(Collectors.toList());
+	}
+}
+
+@Service
+class CategoryStrategy implements ReportStrategy<ProvisionReportOutput, ProvisionReportStagingInput> {
+	@Override
+	public List<ProvisionReportOutput> apply(List<ProvisionReportStagingInput> inputs, List<ProvisionReportOutput> existingOutputs) {
+		BigDecimal categoryTotal = inputs.stream()
+				.filter(input -> "Category".equals(input.differenceTiming()))
+				.map(ProvisionReportStagingInput::amount)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+		existingOutputs.add(new ProvisionReportOutput("Category", categoryTotal));
+		return existingOutputs;
+	}
+
+	@Override
+	public List<ProvisionReportStagingInput> filterInput(List<ProvisionReportStagingInput> inputs) {
+		return inputs.stream()
+				.filter(input -> "Category".equals(input.differenceTiming()))
+				.collect(Collectors.toList());
+	}
+}
+
+@Service
+class HierarchyStrategy implements ReportStrategy<ProvisionReportOutput, ProvisionReportStagingInput> {
+	@Override
+	public List<ProvisionReportOutput> apply(List<ProvisionReportStagingInput> inputs, List<ProvisionReportOutput> existingOutputs) {
+		BigDecimal hierarchyTotal = inputs.stream()
+				.filter(input -> "Hierarchy".equals(input.differenceTiming()))
+				.map(ProvisionReportStagingInput::amount)
+				.reduce(BigDecimal.ZERO, BigDecimal::add);
+		existingOutputs.add(new ProvisionReportOutput("Hierarchy", hierarchyTotal));
+		return existingOutputs;
+	}
+
+	@Override
+	public List<ProvisionReportStagingInput> filterInput(List<ProvisionReportStagingInput> inputs) {
+		return inputs.stream()
+				.filter(input -> "Hierarchy".equals(input.differenceTiming()))
+				.collect(Collectors.toList());
+	}
+}
+
+// Report Generator Interface
+interface ReportGenerator<T> {
+	List<T> generateReport(List<StagingInput> inputs);
+}
+
+// Provision Report Generator
+@Service
+class ProvisionReportGenerator implements ReportGenerator<ProvisionReportOutput> {
+	private final List<ReportStrategy<ProvisionReportOutput, ProvisionReportStagingInput>> strategies;
+
+	public ProvisionReportGenerator() {
+		strategies = List.of(
+				new PTBIStrategy(),
+				new CategoryStrategy(),
+				new ABCStrategy(),
+				new HierarchyStrategy()
+		);
+	}
+
+	@Override
+	public List<ProvisionReportOutput> generateReport(List<StagingInput> inputs) {
+		// Preprocess input into ProvisionReportStagingInput
+		List<ProvisionReportStagingInput> provisionInputs = inputs.stream()
+				.map(input -> new ProvisionReportStagingInput(input.differenceName(), input.differenceTiming(), input.amount(), "SomeCategory"))
+				.collect(Collectors.toList());
+
+		List<ProvisionReportOutput> result = new ArrayList<>();
+		for (ReportStrategy<ProvisionReportOutput, ProvisionReportStagingInput> strategy : strategies) {
+			// Apply each strategy with filtered input
+			List<ProvisionReportStagingInput> filteredInput = strategy.filterInput(provisionInputs);
+			result = strategy.apply(filteredInput, result);
+		}
+		return result;
+	}
+}
+
+// Compliance Report Generator (Stubbed for illustration)
+@Service
+class ComplianceReportGenerator implements ReportGenerator<ComplianceReportOutput> {
+	@Override
+	public List<ComplianceReportOutput> generateReport(List<StagingInput> inputs) {
+		// Placeholder implementation
+		return List.of(new ComplianceReportOutput("ComplianceCategory", BigDecimal.valueOf(1000)));
+	}
+}
+
+// Report Type Enum
+enum ReportType {
+	PROVISION,
+	COMPLIANCE
+}
+
+// Report Factory
+class ReportFactory {
+	public static ReportGenerator<?> createReport(ReportType reportType) {
+		return switch (reportType) {
+			case PROVISION -> new ProvisionReportGenerator();
+			case COMPLIANCE -> new ComplianceReportGenerator();
+		};
+	}
+}
+
+// Report Registry
+class ReportRegistry {
+	private final Map<ReportType, ReportGenerator<?>> registry = new HashMap<>();
+
+	public void register(ReportType reportType, ReportGenerator<?> reportGenerator) {
+		registry.put(reportType, reportGenerator);
+	}
+
+	public ReportGenerator<?> getReportGenerator(ReportType reportType) {
+		return registry.get(reportType);
+	}
+}
+
+// REST Controller
+@RestController
+@RequestMapping("/api/v1/reports")
+class ReportController {
+
+	private final ReportRegistry reportRegistry;
+
+	public ReportController(ReportRegistry reportRegistry) {
+		this.reportRegistry = reportRegistry;
+	}
+
+	@PostMapping("/{reportType}")
+	public ResponseEntity<?> generateReport(@PathVariable ReportType reportType, @RequestBody List<StagingInput> inputs) {
+		ReportGenerator<?> reportGenerator = reportRegistry.getReportGenerator(reportType);
+		if (reportGenerator == null) {
+			throw new IllegalArgumentException("Invalid report type: " + reportType);
+		}
+		List<?> reportOutput = reportGenerator.generateReport(inputs);
+		return ResponseEntity.ok(reportOutput);
+	}
+}
+
+// Global Exception Handler
+@ControllerAdvice
+class GlobalExceptionHandler {
+	@ExceptionHandler(IllegalArgumentException.class)
+	public ResponseEntity<String> handleIllegalArgumentException(IllegalArgumentException ex) {
+		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getMessage());
+	}
+}
+
+
